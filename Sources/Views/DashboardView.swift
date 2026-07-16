@@ -1,4 +1,3 @@
-import Combine
 import SwiftUI
 
 struct DashboardView: View {
@@ -38,10 +37,9 @@ struct DashboardView: View {
                 }
             }
             .refreshable { await vm.load() }
-            .task { await vm.load() }
-            .onReceive(NotificationCenter.default.publisher(for: .photoLibraryChanged)) { _ in
-                Task { await vm.load() }
-            }
+            // Refresh each time the tab is shown (cheaper than a full-library rescan on
+            // every background change — the breakdown enumerates the whole library).
+            .onAppear { Task { await vm.load() } }
         }
     }
 

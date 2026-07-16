@@ -141,6 +141,28 @@ import Testing
     #expect(fake.videoFetchCount == 2)
 }
 
+@MainActor
+@Test func ownDeleteSkipsRescanButExternalChangeReloads() async {
+    let fake = FakeLibrary(videos: [
+        MediaAsset(id: "a", kind: .video, byteSize: 10, creationDate: nil, duration: 1, pixelWidth: 1, pixelHeight: 1, isLocal: true),
+        MediaAsset(id: "b", kind: .video, byteSize: 5, creationDate: nil, duration: 1, pixelWidth: 1, pixelHeight: 1, isLocal: true),
+    ])
+    let vm = MediaCleanupViewModel(filter: .largeVideos, library: fake)
+    await vm.load()                       // fetch #1
+    vm.toggle("a")
+    await vm.deleteSelected()             // local removal, no rescan
+    #expect(vm.assets.map(\.id) == ["b"])
+    #expect(fake.videoFetchCount == 1)
+
+    // The library-change event our own delete triggers is skipped once…
+    await vm.handleLibraryChange()
+    #expect(fake.videoFetchCount == 1)
+
+    // …but a subsequent external change does reload.
+    await vm.handleLibraryChange()
+    #expect(fake.videoFetchCount == 2)
+}
+
 /// In-memory fake. `@unchecked Sendable` is fine here: tests drive it serially.
 private final class FakeLibrary: PhotoLibraryServiceProtocol, @unchecked Sendable {
     private var videos: [MediaAsset]

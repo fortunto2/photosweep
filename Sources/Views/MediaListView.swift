@@ -52,7 +52,7 @@ struct MediaListView: View {
                 }
                 .refreshable { await vm.load(force: true) }
                 .onReceive(NotificationCenter.default.publisher(for: .photoLibraryChanged)) { _ in
-                    Task { await vm.load(force: true) }
+                    Task { await vm.handleLibraryChange() }
                 }
                 .alert("Error", isPresented: Binding(
                     get: { vm.errorMessage != nil },

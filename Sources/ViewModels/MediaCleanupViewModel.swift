@@ -79,6 +79,10 @@ final class MediaCleanupViewModel {
     /// Cached across view re-appearances so returning to a tab doesn't re-scan.
     /// Invalidated by `force: true` (pull-to-refresh or a photo-library change).
     private var hasLoaded = false
+
+    /// Set right after our own deletion so the library-change event it triggers
+    /// doesn't kick off a redundant full rescan — we already updated the cache.
+    private var skipNextLibraryChange = false
     var sortMode: SortMode = .size {
         didSet { rebuild() }
     }
@@ -171,11 +175,22 @@ final class MediaCleanupViewModel {
         let deleting = selected
         do {
             try await library.delete(assetIDs: Array(deleting))
+            skipNextLibraryChange = true
             allAssets.removeAll { deleting.contains($0.id) }
             selected.removeAll()
             rebuild()
         } catch {
             errorMessage = "Couldn't delete: \(error.localizedDescription)"
         }
+    }
+
+    /// Called when the photo library changes. Skips the rescan once if the change
+    /// was our own deletion (already reflected locally); otherwise refreshes.
+    func handleLibraryChange() async {
+        if skipNextLibraryChange {
+            skipNextLibraryChange = false
+            return
+        }
+        await load(force: true)
     }
 }

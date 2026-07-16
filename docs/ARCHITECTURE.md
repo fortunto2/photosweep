@@ -37,3 +37,12 @@ is impractical on-device; the fake-backed tests are the deterministic pipeline c
 ## Known limits (by iOS design, not TODOs)
 - No access to other apps' caches or "System Data".
 - `PHAssetResource` size read via KVC `"fileSize"` (see `PhotoLibraryService`).
+- **Shared Photo Library is opaque.** PhotoKit exposes no way to tell whether a
+  `PHAsset` is in the personal vs. iCloud *Shared* library, nor who contributed it.
+  Supported predicate keys are only: localIdentifier, creationDate, modificationDate,
+  mediaType, mediaSubtypes, duration, pixelWidth, pixelHeight, favorite, hidden,
+  burstIdentifier. So a "mine vs. spouse's" split is impossible for any app.
+  (`PHAssetCollectionSubtype.albumCloudShared` is the *old* Shared Albums, not this.)
+- **Deletion timing.** `PHPhotoLibrary.performChanges` returns after the *local*
+  commit + the system confirmation dialog; iCloud propagation is background and does
+  not block. We update the cache locally on success and skip the self-induced rescan.
