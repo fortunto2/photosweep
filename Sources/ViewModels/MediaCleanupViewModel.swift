@@ -34,6 +34,30 @@ enum SortMode: String, CaseIterable, Sendable {
     case newest = "Newest"
 }
 
+/// Show all items, only the on-device ones, or only the iCloud-offloaded ones.
+/// Filtering to `.local` is the point: those are what actually free device space.
+enum AvailabilityFilter: String, CaseIterable, Sendable {
+    case all = "All"
+    case local = "On device"
+    case cloud = "iCloud"
+
+    var systemImage: String {
+        switch self {
+        case .all: "square.stack.3d.up"
+        case .local: "iphone"
+        case .cloud: "icloud"
+        }
+    }
+
+    func matches(_ asset: MediaAsset) -> Bool {
+        switch self {
+        case .all: true
+        case .local: asset.isLocal
+        case .cloud: !asset.isLocal
+        }
+    }
+}
+
 @Observable
 @MainActor
 final class MediaCleanupViewModel {
@@ -43,13 +67,19 @@ final class MediaCleanupViewModel {
     /// How many videos to surface — the big ones are what matters.
     private let videoLimit = 200
 
+    /// Everything fetched (sorted); `assets` is the availability-filtered view of it.
+    private var allAssets: [MediaAsset] = []
+
     var assets: [MediaAsset] = []
     var selected: Set<String> = []
     var isLoading = false
     var isDeleting = false
     var errorMessage: String?
     var sortMode: SortMode = .size {
-        didSet { assets = Self.sorted(assets, by: sortMode) }
+        didSet { rebuild() }
+    }
+    var availability: AvailabilityFilter = .all {
+        didSet { rebuild() }
     }
 
     init(filter: MediaFilter, library: PhotoLibraryServiceProtocol) {
@@ -57,11 +87,26 @@ final class MediaCleanupViewModel {
         self.library = library
     }
 
-    /// Total on-device bytes of selected assets that are actually local — i.e. what
-    /// deleting will really free on *this* device (cloud-only originals free ~0 here).
+    /// Counts for the availability segmented control, so the user sees how many
+    /// videos are local vs. offloaded before choosing.
+    var localCount: Int { allAssets.count { $0.isLocal } }
+    var cloudCount: Int { allAssets.count { !$0.isLocal } }
+
+    /// Did the library return anything at all (before availability filtering)?
+    var hasAnyAssets: Bool { !allAssets.isEmpty }
+
+    /// Bytes of selected assets that are actually on-device — i.e. what deleting
+    /// really frees on *this* device (cloud-only originals free ~0 here).
     var selectedLocalBytes: Int64 {
-        assets.filter { selected.contains($0.id) && $0.isLocal }.reduce(0) { $0 + $1.byteSize }
+        allAssets.filter { selected.contains($0.id) && $0.isLocal }.reduce(0) { $0 + $1.byteSize }
     }
+
+    var selectedBytes: Int64 {
+        allAssets.filter { selected.contains($0.id) }.reduce(0) { $0 + $1.byteSize }
+    }
+
+    /// True when every *visible* item is selected.
+    var allSelected: Bool { !assets.isEmpty && assets.allSatisfy { selected.contains($0.id) } }
 
     private static func sorted(_ items: [MediaAsset], by mode: SortMode) -> [MediaAsset] {
         switch mode {
@@ -71,25 +116,23 @@ final class MediaCleanupViewModel {
         }
     }
 
-    var selectedBytes: Int64 {
-        assets.filter { selected.contains($0.id) }.reduce(0) { $0 + $1.byteSize }
+    /// Recompute the visible list from `allAssets` using current sort + availability.
+    private func rebuild() {
+        assets = Self.sorted(allAssets.filter { availability.matches($0) }, by: sortMode)
     }
-
-    var allSelected: Bool { !assets.isEmpty && selected.count == assets.count }
 
     func load() async {
         isLoading = true
         defer { isLoading = false }
-        let fetched: [MediaAsset]
         switch filter {
         case .largeVideos:
-            fetched = await library.fetchLargeVideos(limit: videoLimit)
+            allAssets = await library.fetchLargeVideos(limit: videoLimit)
         case .screenshots:
-            fetched = await library.fetchScreenshots()
+            allAssets = await library.fetchScreenshots()
         }
-        assets = Self.sorted(fetched, by: sortMode)
+        rebuild()
         // Drop selections whose assets no longer exist.
-        let ids = Set(assets.map(\.id))
+        let ids = Set(allAssets.map(\.id))
         selected = selected.intersection(ids)
     }
 
@@ -97,7 +140,8 @@ final class MediaCleanupViewModel {
         if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
     }
 
-    func selectAll() { selected = Set(assets.map(\.id)) }
+    /// Selects only the currently-visible (filtered) items.
+    func selectAll() { selected.formUnion(assets.map(\.id)) }
     func clearSelection() { selected.removeAll() }
 
     /// Sends selected assets to Recently Deleted (iOS shows its own confirmation).

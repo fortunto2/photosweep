@@ -51,26 +51,43 @@ struct MediaListView: View {
 
     @ViewBuilder
     private var content: some View {
-        if vm.isLoading && vm.assets.isEmpty {
+        if vm.isLoading && !vm.hasAnyAssets {
             ProgressView("Scanning…")
-        } else if vm.assets.isEmpty {
+        } else if !vm.hasAnyAssets {
             ContentUnavailableView(vm.filter.title, systemImage: vm.filter.systemImage, description: Text(vm.filter.emptyMessage))
         } else {
             ScrollView {
                 if vm.filter == .largeVideos {
-                    Label("☁️ = original in iCloud — deleting frees iCloud, little on this device. 📱 = stored here.", systemImage: "info.circle")
+                    Picker("Show", selection: $vm.availability) {
+                        Text("All").tag(AvailabilityFilter.all)
+                        Text("📱 On device (\(vm.localCount))").tag(AvailabilityFilter.local)
+                        Text("☁️ iCloud (\(vm.cloudCount))").tag(AvailabilityFilter.cloud)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 8).padding(.top, 8)
+
+                    Label("📱 frees space on this device · ☁️ original is in iCloud (deleting frees iCloud, ~nothing here).", systemImage: "info.circle")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                        .padding(.horizontal, 12).padding(.top, 8)
+                        .padding(.horizontal, 12).padding(.top, 4)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                LazyVGrid(columns: columns, spacing: 8) {
-                    ForEach(vm.assets) { asset in
-                        AssetGridItem(asset: asset, isSelected: vm.selected.contains(asset.id))
-                            .onTapGesture { vm.toggle(asset.id) }
+                if vm.assets.isEmpty {
+                    ContentUnavailableView(
+                        "Nothing here",
+                        systemImage: vm.availability.systemImage,
+                        description: Text("No “\(vm.availability.rawValue)” items in this list.")
+                    )
+                    .padding(.top, 40)
+                } else {
+                    LazyVGrid(columns: columns, spacing: 8) {
+                        ForEach(vm.assets) { asset in
+                            AssetGridItem(asset: asset, isSelected: vm.selected.contains(asset.id))
+                                .onTapGesture { vm.toggle(asset.id) }
+                        }
                     }
+                    .padding(8)
                 }
-                .padding(8)
             }
         }
     }

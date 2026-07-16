@@ -85,6 +85,30 @@ import Testing
     #expect(vm.selectedLocalBytes == 300) // only the local one frees on-device space
 }
 
+@MainActor
+@Test func availabilityFilterHidesCloudItems() async {
+    let fake = FakeLibrary(videos: [
+        MediaAsset(id: "cloud", kind: .video, byteSize: 900, creationDate: nil, duration: 5, pixelWidth: 1, pixelHeight: 1, isLocal: false),
+        MediaAsset(id: "local", kind: .video, byteSize: 300, creationDate: nil, duration: 9, pixelWidth: 1, pixelHeight: 1, isLocal: true),
+    ])
+    let vm = MediaCleanupViewModel(filter: .largeVideos, library: fake)
+    await vm.load()
+    #expect(vm.assets.count == 2)
+    #expect(vm.localCount == 1)
+    #expect(vm.cloudCount == 1)
+
+    vm.availability = .local
+    #expect(vm.assets.map(\.id) == ["local"])
+
+    // Select-all only picks visible (local) items; deleting frees real device space.
+    vm.selectAll()
+    #expect(vm.selected == ["local"])
+    #expect(vm.selectedLocalBytes == 300)
+
+    vm.availability = .cloud
+    #expect(vm.assets.map(\.id) == ["cloud"])
+}
+
 /// In-memory fake. `@unchecked Sendable` is fine here: tests drive it serially.
 private final class FakeLibrary: PhotoLibraryServiceProtocol, @unchecked Sendable {
     private var videos: [MediaAsset]
