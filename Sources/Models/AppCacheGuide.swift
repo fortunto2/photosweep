@@ -40,6 +40,19 @@ extension AppCacheGuide {
             ]
         ),
         AppCacheGuide(
+            bundleName: "Photos cache still huge?",
+            symbol: "exclamationmark.triangle.fill",
+            urlScheme: nil,
+            steps: [
+                "First: restart the iPhone and leave it overnight on Wi-Fi + charger — the Photos cache (thumbnails, iCloud downloads, photo analysis) often shrinks on its own",
+                "Check Settings → Photos → Optimize iPhone Storage is ON",
+                "Still tens of GB? It's a known iOS bug where the cache never auto-purges — the only reliable fix is Erase + Restore",
+                "BEFORE erasing, confirm Photos is fully synced: Photos → scroll to the very bottom → no “Uploading N items” (else you lose photos not yet in iCloud)",
+                "Back up twice: an ENCRYPTED Finder backup on a Mac (keeps passwords/Health) + an iCloud backup",
+                "Settings → General → Transfer or Reset iPhone → Erase All Content and Settings → then Restore from that backup. Caches rebuild fresh (~5 GB, not 40) and your apps/layout come back",
+            ]
+        ),
+        AppCacheGuide(
             bundleName: "Google Photos",
             symbol: "photo.stack.fill",
             urlScheme: "googlephotos",
