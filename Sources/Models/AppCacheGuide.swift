@@ -29,6 +29,18 @@ extension AppCacheGuide {
     /// Ordered roughly by how much space they typically hoard.
     static let curated: [AppCacheGuide] = [
         AppCacheGuide(
+            bundleName: "Google Photos",
+            symbol: "photo.stack.fill",
+            urlScheme: "googlephotos",
+            steps: [
+                "Its “Documents & Data” is a local cache — often many GB even when everything is backed up",
+                "First confirm backup is done: Google Photos → Photos tab → “Backup complete”",
+                "Then clear it: Settings → General → iPhone Storage → Google Photos → Delete App → reinstall",
+                "You keep every photo — they live in Google’s cloud. NOTE: “Offload App” does NOT help (it keeps the data); you must Delete + reinstall",
+                "Bonus: in Google Photos → Settings → “Free up space” removes on-device originals already backed up",
+            ]
+        ),
+        AppCacheGuide(
             bundleName: "Telegram",
             symbol: "paperplane.fill",
             urlScheme: "tg",

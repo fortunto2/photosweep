@@ -49,6 +49,7 @@ targets:
         # canOpenURL allowlist for the "App cleanup guide" deep links (iOS caps ~50).
         # We can only OPEN these apps — iOS forbids reading/clearing their caches.
         LSApplicationQueriesSchemes:
+          - googlephotos
           - tg
           - instagram
           - whatsapp
