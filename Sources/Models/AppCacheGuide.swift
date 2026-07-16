@@ -29,6 +29,17 @@ extension AppCacheGuide {
     /// Ordered roughly by how much space they typically hoard.
     static let curated: [AppCacheGuide] = [
         AppCacheGuide(
+            bundleName: "Photos & iCloud (Apple)",
+            symbol: "photo.on.rectangle.angled",
+            urlScheme: nil,
+            steps: [
+                "Biggest quick win — empty Recently Deleted: deleted items (incl. ones deleted here) sit ~30 days still using space. Photos → Albums → Recently Deleted → Select → Delete All",
+                "Turn on Settings → Photos → Optimize iPhone Storage — keeps originals in iCloud, small copies on device",
+                "Delete large videos & old screenshots right here in PhotoSweep (Videos / Screens tabs)",
+                "The rest of “Photos” storage is iOS caches (thumbnails, analysis) — managed by the system, not clearable by any app",
+            ]
+        ),
+        AppCacheGuide(
             bundleName: "Google Photos",
             symbol: "photo.stack.fill",
             urlScheme: "googlephotos",

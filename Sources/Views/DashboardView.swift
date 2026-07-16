@@ -28,6 +28,11 @@ struct DashboardView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+                    Section {
+                        Label("After deleting, empty Photos → Recently Deleted to actually reclaim the space — items linger there ~30 days. See the Apps tab.", systemImage: "trash")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .navigationTitle("PhotoSweep")
