@@ -4,6 +4,8 @@ import SwiftUI
 struct MediaListView: View {
     @State private var vm: MediaCleanupViewModel
     @State private var previewAsset: MediaAsset?
+    @State private var sharePayload: SharePayload?
+    @State private var preparingShare = false
 
     init(filter: MediaFilter, library: PhotoLibraryServiceProtocol) {
         _vm = State(initialValue: MediaCleanupViewModel(filter: filter, library: library))
@@ -63,8 +65,11 @@ struct MediaListView: View {
                     Text(vm.errorMessage ?? "")
                 }
                 .sheet(item: $previewAsset) { asset in
-                    MediaPreviewView(asset: asset)
+                    MediaPreviewView(asset: asset) {
+                        await vm.deleteAssets([asset.id])
+                    }
                 }
+                .sheet(item: $sharePayload) { ShareSheet(items: $0.urls) }
         }
     }
 
@@ -116,6 +121,11 @@ struct MediaListView: View {
                                             Label(vm.selected.contains(asset.id) ? "Deselect" : "Select",
                                                   systemImage: vm.selected.contains(asset.id) ? "circle" : "checkmark.circle")
                                         }
+                                        Button {
+                                            share([asset.id])
+                                        } label: {
+                                            Label("Share / Export", systemImage: "square.and.arrow.up")
+                                        }
                                     }
                                 }
                         }
@@ -129,22 +139,43 @@ struct MediaListView: View {
     @ViewBuilder
     private var deleteBar: some View {
         if !vm.selected.isEmpty {
-            Button {
-                Task { await vm.deleteSelected() }
-            } label: {
-                HStack {
-                    if vm.isDeleting { ProgressView().tint(.white) }
-                    Text("Delete \(vm.selected.count) · frees \(Format.bytes(vm.selectedLocalBytes)) here")
-                        .fontWeight(.semibold)
+            HStack(spacing: 10) {
+                Button {
+                    share(Array(vm.selected))
+                } label: {
+                    Label(preparingShare ? "Preparing…" : "Share", systemImage: "square.and.arrow.up")
+                        .padding(.vertical, 6)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
+                .buttonStyle(.bordered)
+                .disabled(preparingShare || vm.isDeleting)
+
+                Button {
+                    Task { await vm.deleteSelected() }
+                } label: {
+                    HStack {
+                        if vm.isDeleting { ProgressView().tint(.white) }
+                        Text("Delete \(vm.selected.count) · frees \(Format.bytes(vm.selectedLocalBytes))")
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .disabled(vm.isDeleting)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
-            .disabled(vm.isDeleting)
             .padding()
             .background(.ultraThinMaterial)
+        }
+    }
+
+    /// Exports the given assets to temp files, then presents the iOS share sheet.
+    private func share(_ ids: [String]) {
+        preparingShare = true
+        Task {
+            let urls = await AssetExporter.export(ids: ids)
+            preparingShare = false
+            if !urls.isEmpty { sharePayload = SharePayload(urls: urls) }
         }
     }
 }

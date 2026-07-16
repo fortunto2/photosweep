@@ -166,18 +166,21 @@ final class MediaCleanupViewModel {
     }
 
     /// Sends selected assets to Recently Deleted (iOS shows its own confirmation).
+    func deleteSelected() async { await deleteAssets(Array(selected)) }
+
+    /// Deletes specific assets (used by both bulk delete and single-item preview).
     /// On success we drop them from the cache locally — instant, no re-scan, and the
     /// grid never shows already-deleted items. A library-change event reconciles later.
-    func deleteSelected() async {
-        guard !selected.isEmpty else { return }
+    func deleteAssets(_ ids: [String]) async {
+        guard !ids.isEmpty else { return }
         isDeleting = true
         defer { isDeleting = false }
-        let deleting = selected
+        let deleting = Set(ids)
         do {
-            try await library.delete(assetIDs: Array(deleting))
+            try await library.delete(assetIDs: ids)
             skipNextLibraryChange = true
             allAssets.removeAll { deleting.contains($0.id) }
-            selected.removeAll()
+            selected.subtract(deleting)
             rebuild()
         } catch {
             errorMessage = "Couldn't delete: \(error.localizedDescription)"

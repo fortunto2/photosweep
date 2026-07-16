@@ -7,17 +7,23 @@ import SwiftUI
 /// no public API to open a specific asset in the Photos app, so we play it here.
 struct MediaPreviewView: View {
     let asset: MediaAsset
+    /// Deletes this asset (supplied by the list); preview dismisses afterwards.
+    var onDelete: (() async -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     @State private var player: AVPlayer?
     @State private var image: UIImage?
     @State private var loading = true
+    @State private var sharePayload: SharePayload?
+    @State private var preparingShare = false
+    @State private var deleting = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 media
                 metadata
+                actions
             }
             .navigationTitle("Preview")
             .navigationBarTitleDisplayMode(.inline)
@@ -26,9 +32,46 @@ struct MediaPreviewView: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .sheet(item: $sharePayload) { ShareSheet(items: $0.urls) }
         }
         .task { await load() }
         .onDisappear { player?.pause() }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 12) {
+            Button {
+                preparingShare = true
+                Task {
+                    let urls = await AssetExporter.export(ids: [asset.id])
+                    preparingShare = false
+                    if !urls.isEmpty { sharePayload = SharePayload(urls: urls) }
+                }
+            } label: {
+                Label(preparingShare ? "Preparing…" : "Share", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(preparingShare || deleting)
+
+            if onDelete != nil {
+                Button(role: .destructive) {
+                    deleting = true
+                    Task {
+                        await onDelete?()
+                        dismiss()      // ← fixes preview lingering after delete
+                    }
+                } label: {
+                    Label(deleting ? "Deleting…" : "Delete", systemImage: "trash")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .disabled(deleting || preparingShare)
+            }
+        }
+        .padding()
+        .background(.bar)
     }
 
     @ViewBuilder
