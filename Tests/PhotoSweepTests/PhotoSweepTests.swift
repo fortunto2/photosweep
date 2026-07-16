@@ -109,6 +109,22 @@ import Testing
     #expect(vm.assets.map(\.id) == ["cloud"])
 }
 
+@MainActor
+@Test func selectOlderThanPicksOldItems() async {
+    let now = Date(timeIntervalSince1970: 1_700_000_000) // fixed reference
+    let old = now.addingTimeInterval(-400 * 86_400)      // ~13 months ago
+    let recent = now.addingTimeInterval(-30 * 86_400)    // ~1 month ago
+    let fake = FakeLibrary(screenshots: [
+        MediaAsset(id: "old", kind: .screenshot, byteSize: 10, creationDate: old, duration: 0, pixelWidth: 1, pixelHeight: 1, isLocal: true),
+        MediaAsset(id: "recent", kind: .screenshot, byteSize: 10, creationDate: recent, duration: 0, pixelWidth: 1, pixelHeight: 1, isLocal: true),
+    ])
+    let vm = MediaCleanupViewModel(filter: .screenshots, library: fake)
+    await vm.load()
+
+    vm.selectOlderThan(days: 365, now: now)
+    #expect(vm.selected == ["old"]) // only the >1yr screenshot
+}
+
 /// In-memory fake. `@unchecked Sendable` is fine here: tests drive it serially.
 private final class FakeLibrary: PhotoLibraryServiceProtocol, @unchecked Sendable {
     private var videos: [MediaAsset]

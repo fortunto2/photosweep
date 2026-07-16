@@ -144,6 +144,14 @@ final class MediaCleanupViewModel {
     func selectAll() { selected.formUnion(assets.map(\.id)) }
     func clearSelection() { selected.removeAll() }
 
+    /// Adds every visible item older than `days` to the selection — e.g. "screenshots
+    /// older than a year". `now` is injectable so the logic is deterministically testable.
+    func selectOlderThan(days: Int, now: Date = Date()) {
+        guard let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: now) else { return }
+        let ids = assets.filter { ($0.creationDate ?? .distantFuture) < cutoff }.map(\.id)
+        selected.formUnion(ids)
+    }
+
     /// Sends selected assets to Recently Deleted (iOS shows its own confirmation).
     func deleteSelected() async {
         guard !selected.isEmpty else { return }

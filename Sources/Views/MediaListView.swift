@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MediaListView: View {
     @State private var vm: MediaCleanupViewModel
+    @State private var previewAsset: MediaAsset?
 
     init(filter: MediaFilter, library: PhotoLibraryServiceProtocol) {
         _vm = State(initialValue: MediaCleanupViewModel(filter: filter, library: library))
@@ -29,8 +30,16 @@ struct MediaListView: View {
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         if !vm.assets.isEmpty {
-                            Button(vm.allSelected ? "Deselect All" : "Select All") {
-                                vm.allSelected ? vm.clearSelection() : vm.selectAll()
+                            Menu {
+                                Button("Select all visible", systemImage: "checkmark.circle") { vm.selectAll() }
+                                Button("Older than 1 year", systemImage: "calendar") { vm.selectOlderThan(days: 365) }
+                                Button("Older than 6 months", systemImage: "calendar") { vm.selectOlderThan(days: 182) }
+                                if !vm.selected.isEmpty {
+                                    Divider()
+                                    Button("Deselect all", systemImage: "xmark.circle", role: .destructive) { vm.clearSelection() }
+                                }
+                            } label: {
+                                Label("Select", systemImage: "checklist")
                             }
                         }
                     }
@@ -45,6 +54,9 @@ struct MediaListView: View {
                     Button("OK", role: .cancel) {}
                 } message: {
                     Text(vm.errorMessage ?? "")
+                }
+                .sheet(item: $previewAsset) { asset in
+                    MediaPreviewView(asset: asset)
                 }
         }
     }
@@ -84,6 +96,21 @@ struct MediaListView: View {
                         ForEach(vm.assets) { asset in
                             AssetGridItem(asset: asset, isSelected: vm.selected.contains(asset.id))
                                 .onTapGesture { vm.toggle(asset.id) }
+                                .contextMenu {
+                                    Section(Format.date(asset.creationDate)) {
+                                        Button {
+                                            previewAsset = asset
+                                        } label: {
+                                            Label(asset.kind == .video ? "Play preview" : "View", systemImage: "play.circle")
+                                        }
+                                        Button {
+                                            vm.toggle(asset.id)
+                                        } label: {
+                                            Label(vm.selected.contains(asset.id) ? "Deselect" : "Select",
+                                                  systemImage: vm.selected.contains(asset.id) ? "circle" : "checkmark.circle")
+                                        }
+                                    }
+                                }
                         }
                     }
                     .padding(8)

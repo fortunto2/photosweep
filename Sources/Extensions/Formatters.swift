@@ -12,4 +12,10 @@ enum Format {
         let total = Int(seconds.rounded())
         return String(format: "%d:%02d", total / 60, total % 60)
     }
+
+    /// "17 Jul 2026 at 14:32", localized. "Unknown date" if missing.
+    static func date(_ value: Date?) -> String {
+        guard let value else { return "Unknown date" }
+        return value.formatted(date: .abbreviated, time: .shortened)
+    }
 }
