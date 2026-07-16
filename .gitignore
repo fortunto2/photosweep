@@ -1,0 +1,24 @@
+# XcodeGen output — regenerated from project.yml, never committed
+*.xcodeproj
+*.xcworkspace
+
+# Build artifacts
+build/
+build-sim/
+DerivedData/
+*.xcarchive
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+.swiftpm/
+
+# macOS
+.DS_Store
+
+# SwiftLint / tooling caches
+.build/
+
+# Secrets
+*.p8
+AuthKey_*.p8
