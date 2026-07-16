@@ -75,6 +75,10 @@ final class MediaCleanupViewModel {
     var isLoading = false
     var isDeleting = false
     var errorMessage: String?
+
+    /// Cached across view re-appearances so returning to a tab doesn't re-scan.
+    /// Invalidated by `force: true` (pull-to-refresh or a photo-library change).
+    private var hasLoaded = false
     var sortMode: SortMode = .size {
         didSet { rebuild() }
     }
@@ -121,7 +125,11 @@ final class MediaCleanupViewModel {
         assets = Self.sorted(allAssets.filter { availability.matches($0) }, by: sortMode)
     }
 
-    func load() async {
+    /// Scans the library. No-op if already loaded unless `force` is set — so tab
+    /// switches reuse the cache, while pull-to-refresh and library-change events
+    /// (deletions, edits made elsewhere) pass `force: true` to get fresh data.
+    func load(force: Bool = false) async {
+        guard force || !hasLoaded else { return }
         isLoading = true
         defer { isLoading = false }
         switch filter {
@@ -130,6 +138,7 @@ final class MediaCleanupViewModel {
         case .screenshots:
             allAssets = await library.fetchScreenshots()
         }
+        hasLoaded = true
         rebuild()
         // Drop selections whose assets no longer exist.
         let ids = Set(allAssets.map(\.id))
@@ -153,14 +162,18 @@ final class MediaCleanupViewModel {
     }
 
     /// Sends selected assets to Recently Deleted (iOS shows its own confirmation).
+    /// On success we drop them from the cache locally — instant, no re-scan, and the
+    /// grid never shows already-deleted items. A library-change event reconciles later.
     func deleteSelected() async {
         guard !selected.isEmpty else { return }
         isDeleting = true
         defer { isDeleting = false }
+        let deleting = selected
         do {
-            try await library.delete(assetIDs: Array(selected))
+            try await library.delete(assetIDs: Array(deleting))
+            allAssets.removeAll { deleting.contains($0.id) }
             selected.removeAll()
-            await load()
+            rebuild()
         } catch {
             errorMessage = "Couldn't delete: \(error.localizedDescription)"
         }

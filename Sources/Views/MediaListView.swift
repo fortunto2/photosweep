@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 struct MediaListView: View {
@@ -45,8 +46,14 @@ struct MediaListView: View {
                     }
                 }
                 .safeAreaInset(edge: .bottom) { deleteBar }
-                .task { await vm.load() }
-                .refreshable { await vm.load() }
+                .task {
+                    LibraryChangeObserver.shared.start()
+                    await vm.load()
+                }
+                .refreshable { await vm.load(force: true) }
+                .onReceive(NotificationCenter.default.publisher(for: .photoLibraryChanged)) { _ in
+                    Task { await vm.load(force: true) }
+                }
                 .alert("Error", isPresented: Binding(
                     get: { vm.errorMessage != nil },
                     set: { if !$0 { vm.errorMessage = nil } }

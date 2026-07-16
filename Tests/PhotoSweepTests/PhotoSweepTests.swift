@@ -125,10 +125,27 @@ import Testing
     #expect(vm.selected == ["old"]) // only the >1yr screenshot
 }
 
+@MainActor
+@Test func cacheGuardAvoidsRescanUnlessForced() async {
+    let fake = FakeLibrary(videos: [
+        MediaAsset(id: "a", kind: .video, byteSize: 10, creationDate: nil, duration: 1, pixelWidth: 1, pixelHeight: 1, isLocal: true),
+    ])
+    let vm = MediaCleanupViewModel(filter: .largeVideos, library: fake)
+
+    await vm.load()          // scans
+    await vm.load()          // cached — no rescan
+    await vm.load()          // cached — no rescan
+    #expect(fake.videoFetchCount == 1)
+
+    await vm.load(force: true) // pull-to-refresh / library change
+    #expect(fake.videoFetchCount == 2)
+}
+
 /// In-memory fake. `@unchecked Sendable` is fine here: tests drive it serially.
 private final class FakeLibrary: PhotoLibraryServiceProtocol, @unchecked Sendable {
     private var videos: [MediaAsset]
     private var screenshots: [MediaAsset]
+    private(set) var videoFetchCount = 0
 
     init(videos: [MediaAsset] = [], screenshots: [MediaAsset] = []) {
         self.videos = videos.sorted { $0.byteSize > $1.byteSize }
@@ -137,7 +154,10 @@ private final class FakeLibrary: PhotoLibraryServiceProtocol, @unchecked Sendabl
 
     func authorizationStatus() -> PHAuthorizationStatus { .authorized }
     func requestAuthorization() async -> PHAuthorizationStatus { .authorized }
-    func fetchLargeVideos(limit: Int) async -> [MediaAsset] { Array(videos.prefix(limit)) }
+    func fetchLargeVideos(limit: Int) async -> [MediaAsset] {
+        videoFetchCount += 1
+        return Array(videos.prefix(limit))
+    }
     func fetchScreenshots() async -> [MediaAsset] { screenshots }
     func libraryBreakdown() async -> LibraryBreakdown { LibraryBreakdown() }
 

@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 struct DashboardView: View {
@@ -38,6 +39,9 @@ struct DashboardView: View {
             }
             .refreshable { await vm.load() }
             .task { await vm.load() }
+            .onReceive(NotificationCenter.default.publisher(for: .photoLibraryChanged)) { _ in
+                Task { await vm.load() }
+            }
         }
     }
 

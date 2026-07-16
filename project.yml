@@ -9,6 +9,12 @@ options:
   developmentLanguage: en
   knownRegions: [en, ru]
 
+# Suppresses Xcode's "Update to recommended settings" prompt on open — matches the
+# current Xcode. If Xcode still offers changes, tell me which and I'll bake them here
+# (project.yml is the source of truth; edits made in Xcode's UI get wiped on regenerate).
+attributes:
+  LastUpgradeCheck: "2650"
+
 settings:
   base:
     # Xcode 26 ships Explicitly Built Modules on by default; its clang dependency
@@ -17,6 +23,8 @@ settings:
     # (Same workaround as reelcam.) See Makefile GUARD_ON for the runtime safety net.
     CLANG_ENABLE_EXPLICIT_MODULES: NO
     SWIFT_ENABLE_EXPLICIT_MODULES: NO
+    # Xcode's recommended setting for new projects — accepted here so it persists.
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
 
 targets:
   PhotoSweep:
@@ -65,7 +73,10 @@ targets:
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
         PRODUCT_BUNDLE_IDENTIFIER: co.superduperai.photosweep
-        DEVELOPMENT_TEAM: J6JLR9Y684
+        # Team assigned in Xcode (the one with a working signing profile). Locked here
+        # so `make generate` never resets it again. Automatic managed signing.
+        DEVELOPMENT_TEAM: 8N495BBBLM
+        CODE_SIGN_STYLE: Automatic
 
   PhotoSweepTests:
     type: bundle.unit-test
@@ -79,6 +90,8 @@ targets:
         SWIFT_VERSION: "6.0"
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: co.superduperai.photosweep.tests
+        DEVELOPMENT_TEAM: 8N495BBBLM
+        CODE_SIGN_STYLE: Automatic
 
 schemes:
   PhotoSweep:
