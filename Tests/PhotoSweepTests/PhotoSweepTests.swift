@@ -45,14 +45,14 @@ import Testing
 @MainActor
 @Test func cleanupSelectionAndDeleteFlow() async {
     let fake = FakeLibrary(videos: [
-        MediaAsset(id: "a", kind: .video, byteSize: 100, creationDate: nil, duration: 10, pixelWidth: 1, pixelHeight: 1),
-        MediaAsset(id: "b", kind: .video, byteSize: 50, creationDate: nil, duration: 5, pixelWidth: 1, pixelHeight: 1),
+        MediaAsset(id: "a", kind: .video, byteSize: 100, creationDate: nil, duration: 10, pixelWidth: 1, pixelHeight: 1, isLocal: true),
+        MediaAsset(id: "b", kind: .video, byteSize: 50, creationDate: nil, duration: 5, pixelWidth: 1, pixelHeight: 1, isLocal: true),
     ])
     let vm = MediaCleanupViewModel(filter: .largeVideos, library: fake)
 
     await vm.load()
     #expect(vm.assets.count == 2)
-    #expect(vm.assets.first?.id == "a") // sorted largest first by the fake
+    #expect(vm.assets.first?.id == "a") // size sort: largest first
 
     vm.toggle("a")
     #expect(vm.selectedBytes == 100)
@@ -63,6 +63,26 @@ import Testing
     await vm.deleteSelected()
     #expect(vm.assets.isEmpty)
     #expect(vm.selected.isEmpty)
+}
+
+@MainActor
+@Test func sortByDurationAndLocalBytes() async {
+    let fake = FakeLibrary(videos: [
+        // Biggest by size, but cloud-only → frees nothing locally.
+        MediaAsset(id: "big-cloud", kind: .video, byteSize: 900, creationDate: nil, duration: 5, pixelWidth: 1, pixelHeight: 1, isLocal: false),
+        // Smaller, local, longest.
+        MediaAsset(id: "long-local", kind: .video, byteSize: 300, creationDate: nil, duration: 120, pixelWidth: 1, pixelHeight: 1, isLocal: true),
+    ])
+    let vm = MediaCleanupViewModel(filter: .largeVideos, library: fake)
+    await vm.load()
+    #expect(vm.assets.first?.id == "big-cloud") // default: size
+
+    vm.sortMode = .duration
+    #expect(vm.assets.first?.id == "long-local") // now longest first
+
+    vm.selectAll()
+    #expect(vm.selectedBytes == 1200)
+    #expect(vm.selectedLocalBytes == 300) // only the local one frees on-device space
 }
 
 /// In-memory fake. `@unchecked Sendable` is fine here: tests drive it serially.

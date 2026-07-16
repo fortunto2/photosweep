@@ -14,6 +14,19 @@ struct MediaListView: View {
             content
                 .navigationTitle(vm.filter.title)
                 .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        if !vm.assets.isEmpty {
+                            Menu {
+                                Picker("Sort", selection: $vm.sortMode) {
+                                    ForEach(SortMode.allCases, id: \.self) { mode in
+                                        Text(mode.rawValue).tag(mode)
+                                    }
+                                }
+                            } label: {
+                                Label("Sort: \(vm.sortMode.rawValue)", systemImage: "arrow.up.arrow.down")
+                            }
+                        }
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         if !vm.assets.isEmpty {
                             Button(vm.allSelected ? "Deselect All" : "Select All") {
@@ -44,6 +57,13 @@ struct MediaListView: View {
             ContentUnavailableView(vm.filter.title, systemImage: vm.filter.systemImage, description: Text(vm.filter.emptyMessage))
         } else {
             ScrollView {
+                if vm.filter == .largeVideos {
+                    Label("☁️ = original in iCloud — deleting frees iCloud, little on this device. 📱 = stored here.", systemImage: "info.circle")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12).padding(.top, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 LazyVGrid(columns: columns, spacing: 8) {
                     ForEach(vm.assets) { asset in
                         AssetGridItem(asset: asset, isSelected: vm.selected.contains(asset.id))
@@ -63,7 +83,7 @@ struct MediaListView: View {
             } label: {
                 HStack {
                     if vm.isDeleting { ProgressView().tint(.white) }
-                    Text("Delete \(vm.selected.count) · free \(Format.bytes(vm.selectedBytes))")
+                    Text("Delete \(vm.selected.count) · frees \(Format.bytes(vm.selectedLocalBytes)) here")
                         .fontWeight(.semibold)
                 }
                 .frame(maxWidth: .infinity)

@@ -16,6 +16,12 @@ struct MediaAsset: Identifiable, Sendable, Hashable {
     let duration: TimeInterval
     let pixelWidth: Int
     let pixelHeight: Int
+    /// Is the full-resolution original physically on this device?
+    ///
+    /// With iCloud "Optimize Storage" a big video's original lives in the cloud and
+    /// only a small proxy is local — so deleting it frees space in iCloud, not much
+    /// here. `false` ⇒ show the ☁️ badge. `byteSize` is always the *original* size.
+    let isLocal: Bool
 }
 
 enum MediaKind: String, Sendable {

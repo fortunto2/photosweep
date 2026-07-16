@@ -25,11 +25,25 @@ struct AssetGridItem: View {
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: 10))
 
-            // Size / duration badge.
-            HStack(spacing: 4) {
-                if asset.kind == .video, !Format.duration(asset.duration).isEmpty {
-                    Image(systemName: "play.fill").font(.system(size: 8))
+            // Duration badge (video, top-left).
+            if asset.kind == .video, case let dur = Format.duration(asset.duration), !dur.isEmpty {
+                HStack(spacing: 3) {
+                    Image(systemName: "play.fill").font(.system(size: 7))
+                    Text(dur)
                 }
+                .font(.caption2.weight(.semibold))
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(.black.opacity(0.55), in: Capsule())
+                .foregroundStyle(.white)
+                .padding(6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+
+            // Size + local/cloud badge (bottom-left).
+            HStack(spacing: 4) {
+                Image(systemName: asset.isLocal ? "iphone" : "icloud")
+                    .font(.system(size: 9))
+                    .foregroundStyle(asset.isLocal ? .white : Color.cyan)
                 Text(Format.bytes(asset.byteSize))
             }
             .font(.caption2.weight(.semibold))

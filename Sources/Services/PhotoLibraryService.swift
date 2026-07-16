@@ -93,8 +93,25 @@ actor PhotoLibraryService: PhotoLibraryServiceProtocol {
             creationDate: asset.creationDate,
             duration: asset.duration,
             pixelWidth: asset.pixelWidth,
-            pixelHeight: asset.pixelHeight
+            pixelHeight: asset.pixelHeight,
+            isLocal: isLocallyAvailable(of: asset)
         )
+    }
+
+    /// Whether the full original is on-device (vs. offloaded to iCloud).
+    ///
+    /// AI-NOTE: `PHAssetResource` exposes the KVC flag `"locallyAvailable"` (same
+    /// family as `"fileSize"`). If any resource reports not-local, the original has
+    /// been optimized to iCloud. No network hit — safe to call while scanning.
+    static func isLocallyAvailable(of asset: PHAsset) -> Bool {
+        let resources = PHAssetResource.assetResources(for: asset)
+        guard !resources.isEmpty else { return true }
+        for resource in resources {
+            if let local = resource.value(forKey: "locallyAvailable") as? Bool, local == false {
+                return false
+            }
+        }
+        return true
     }
 
     /// Physical bytes for an asset.
