@@ -26,8 +26,16 @@ settings:
     # Xcode's recommended setting for new projects — accepted here so it persists.
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 
+packages:
+  SuperDuperAnalytics:
+    # Локальный путь: пакет лежит в этом же дереве, и собираться должна та версия,
+    # которую сейчас правят. Появится публичный репозиторий — станет url.
+    path: ../../shared/superduperai-analytics
+
 targets:
   PhotoSweep:
+    dependencies:
+      - package: SuperDuperAnalytics
     type: application
     platform: iOS
     sources:
@@ -38,6 +46,9 @@ targets:
       properties:
         CFBundleDisplayName: PhotoSweep
         UILaunchScreen: {}
+        # No encryption beyond Apple-exempt HTTPS — skips the per-upload export-compliance
+        # prompt (an unanswered prompt expires the build ~1 day after upload).
+        ITSAppUsesNonExemptEncryption: false
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         # Why we touch the photo library — shown in the system permission prompt.
         NSPhotoLibraryUsageDescription: >-
