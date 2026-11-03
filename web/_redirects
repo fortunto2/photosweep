@@ -1,0 +1,9 @@
+# photosweep.pages.dev is retired (2 Nov 2026): PhotoSweep's page, privacy policy and support live
+# on superduperai.co. Plan: superduperai-site/docs/ecosystem.md, step 4.
+# Deploy: npx wrangler pages deploy web --project-name photosweep --branch main
+/privacy https://superduperai.co/products/photosweep/privacy/ 301
+/privacy/ https://superduperai.co/products/photosweep/privacy/ 301
+/privacy/index.html https://superduperai.co/products/photosweep/privacy/ 301
+/support https://superduperai.co/products/photosweep/support/ 301
+/support/ https://superduperai.co/products/photosweep/support/ 301
+/* https://superduperai.co/products/photosweep/ 301
