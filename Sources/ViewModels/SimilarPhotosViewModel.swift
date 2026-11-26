@@ -36,6 +36,13 @@ final class SimilarPhotosViewModel {
         return total > 0 ? Double(analyzed) / Double(total) : 0
     }
 
+    /// Quick Clean deletes across hundreds of groups; it waits until every grouped photo's
+    /// camera is known, so a Shared Library partner's shot is never swept up in bulk.
+    var quickCleanReady: Bool {
+        if case .checkingCameras = stage, isScanning { return false }
+        return true
+    }
+
     var progressText: String {
         switch stage {
         case let .checkingCameras(done, of): "Checking which phone took each photo… \(done.formatted()) of \(of.formatted())"

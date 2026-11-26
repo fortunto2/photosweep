@@ -74,13 +74,17 @@ struct SimilarPhotosView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.red)
-            .disabled(vm.isDeleting || vm.quickCleanIDs.isEmpty)
+            .disabled(vm.isDeleting || vm.quickCleanIDs.isEmpty || !vm.quickCleanReady)
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(vm.groups.count) groups. ★ marks the photo kept; tap any photo to change what goes. iOS asks before anything is deleted.")
                 Text("Using an iCloud Shared Library? Shots from two different phones are never grouped together (read from each photo’s camera). Deleting a shared photo removes it for everyone in the library.")
+                if !vm.quickCleanReady {
+                    Text("Quick Clean unlocks once every photo’s phone is checked; single groups can be cleaned now.")
+                        .foregroundStyle(.orange)
+                }
                 if vm.freedBytes > 0 {
                     Text("Freed so far: \(Format.bytes(vm.freedBytes)). Empty Recently Deleted in Photos to reclaim it.")
                         .foregroundStyle(.green)
