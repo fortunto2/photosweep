@@ -398,6 +398,35 @@ private final class FakeFinder: SimilarPhotoFinderProtocol, @unchecked Sendable 
     #expect(vm.quickCleanIDs.count == 4)
 }
 
+@MainActor
+@Test func keptPhotosAreRememberedAndRowGreys() async throws {
+    let out = PhotoGrouper().group([
+        photo("a", t: 0, bytes: 100, vector: [0, 0], blur: 0.4),
+        photo("b", t: 5, bytes: 200, vector: [0, 0.1], blur: 0.2),
+        photo("c", t: 9, bytes: 300, vector: [0.1, 0], blur: 0.5),
+    ])
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("kept-\(UUID()).txt")
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let vm = SimilarPhotosViewModel(finder: FakeFinder(out.groups), library: FakeLibrary(), keeps: KeepStore(url: url))
+    vm.cleanLevel = .all
+    await vm.scan()
+    vm.toggle("c", in: vm.groups[0])                 // "no" to c
+
+    // Next launch: c is not suggested again, a still is.
+    let next = SimilarPhotosViewModel(finder: FakeFinder(out.groups), library: FakeLibrary(), keeps: KeepStore(url: url))
+    next.cleanLevel = .all
+    await next.scan()
+    #expect(next.quickCleanIDs == ["a"])
+    #expect(!next.isKept(next.groups[0]))
+
+    next.keepAll(next.groups[0])                     // whole row in one gesture
+    #expect(next.quickCleanIDs.isEmpty)
+    #expect(next.isKept(next.groups[0]))
+    next.undoKeep(next.groups[0])
+    #expect(Set(next.quickCleanIDs) == ["a", "c"])
+}
+
 @Test func driftingSessionSplitsInsteadOfChaining() {
     // Each shot is 0.3 from the previous (< 0.45) but the last is 1.5 from the first.
     let shots = (0..<6).map { photo("s\($0)", t: Double($0 * 10), bytes: Int64($0 + 1), vector: [Float($0) * 0.3, 0]) }

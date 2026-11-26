@@ -7,8 +7,9 @@ struct SimilarPhotosView: View {
     @State private var blurrySelection: Set<String> = []
 
     init(finder: SimilarPhotoFinderProtocol, library: PhotoLibraryServiceProtocol,
-         track: @escaping PhotoLibraryService.Track) {
-        _vm = State(initialValue: SimilarPhotosViewModel(finder: finder, library: library, track: track))
+         track: @escaping PhotoLibraryService.Track, keeps: KeepStore = .shared) {
+        _vm = State(initialValue: SimilarPhotosViewModel(finder: finder, library: library, track: track,
+                                                         keeps: keeps))
     }
 
     var body: some View {
@@ -85,7 +86,7 @@ struct SimilarPhotosView: View {
             .listRowBackground(Color.clear)
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(vm.groups.count) groups · ★ kept · tap to change. 20% = only near-identical shots.")
+                Text("\(vm.groups.count) groups · tap a photo to keep it · Keep all saves the row. Remembered.")
                 Text("Shared Library: deleting removes it for everyone.")
                 if !vm.quickCleanReady {
                     Text("Unlocks after the phone check.").foregroundStyle(.orange)
@@ -99,7 +100,8 @@ struct SimilarPhotosView: View {
     }
 
     private func groupSection(_ group: SimilarGroup) -> some View {
-        Section {
+        let kept = vm.isKept(group)
+        return Section {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(group.items) { asset in
@@ -108,6 +110,7 @@ struct SimilarPhotosView: View {
                                 if asset.id == group.bestID { badge("★ Best", .green) }
                                 else if group.favoriteIDs.contains(asset.id) { badge("♥", .pink) }
                             }
+                            .opacity(!kept && vm.isKept(asset.id) && asset.id != group.bestID ? 0.5 : 1)
                             .onTapGesture { vm.toggle(asset.id, in: group) }
                             .contextMenu {
                                 Button("View", systemImage: "eye") { previewAsset = asset }
@@ -121,16 +124,30 @@ struct SimilarPhotosView: View {
                 }
                 .padding(.vertical, 4)
             }
+            .opacity(kept ? 0.35 : 1)
+            .saturation(kept ? 0 : 1)
             .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                if kept {
+                    Button("Undo", systemImage: "arrow.uturn.backward") { vm.undoKeep(group) }.tint(.gray)
+                } else {
+                    Button("Keep all", systemImage: "hand.raised") { vm.keepAll(group) }.tint(.green)
+                }
+            }
         } header: {
-            HStack {
+            HStack(spacing: 12) {
                 Text("\(group.kind == .duplicate ? "Duplicates" : "Similar") · \(group.items.count)")
                 Spacer()
                 let marked = vm.marked[group.id]?.count ?? 0
-                if marked > 0 {
-                    Button("Delete \(marked)", role: .destructive) { Task { await vm.deleteMarked(in: group) } }
-                        .font(.caption.weight(.semibold))
-                        .disabled(vm.isDeleting)
+                if kept {
+                    Button("Kept · Undo") { vm.undoKeep(group) }.font(.caption.weight(.semibold))
+                } else {
+                    Button("Keep all") { vm.keepAll(group) }.font(.caption.weight(.semibold))
+                    if marked > 0 {
+                        Button("Delete \(marked)", role: .destructive) { Task { await vm.deleteMarked(in: group) } }
+                            .font(.caption.weight(.semibold))
+                            .disabled(vm.isDeleting)
+                    }
                 }
             }
         }

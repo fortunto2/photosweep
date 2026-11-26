@@ -6,6 +6,7 @@ final class SimilarPhotosViewModel {
     private let finder: SimilarPhotoFinderProtocol
     private let library: PhotoLibraryServiceProtocol
     private let track: PhotoLibraryService.Track
+    private let keeps: KeepStore
 
     var scope: SimilarScope = .year
     /// Starts at the safest level: bulk deletion should earn trust before it takes everything.
@@ -29,7 +30,9 @@ final class SimilarPhotosViewModel {
     private var reviewed: Set<String> = []
 
     init(finder: SimilarPhotoFinderProtocol, library: PhotoLibraryServiceProtocol,
-         track: @escaping PhotoLibraryService.Track = { _, _, _ in }) {
+         track: @escaping PhotoLibraryService.Track = { _, _, _ in },
+         keeps: KeepStore = KeepStore(url: nil)) {
+        self.keeps = keeps
         self.finder = finder
         self.library = library
         self.track = track
@@ -70,9 +73,41 @@ final class SimilarPhotosViewModel {
 
     func isMarked(_ id: String, in group: SimilarGroup) -> Bool { marked[group.id]?.contains(id) ?? false }
 
+    /// Every photo we would suggest here, the person has said to keep: shown greyed.
+    func isKept(_ group: SimilarGroup) -> Bool {
+        let suggested = group.suggestedForDeletion
+        return !suggested.isEmpty && suggested.allSatisfy { keeps.contains($0.id) }
+            && (marked[group.id] ?? []).isEmpty
+    }
+
+    func isKept(_ id: String) -> Bool { keeps.contains(id) }
+
+    /// One tap for the whole row: keep everything in it, remembered across launches.
+    func keepAll(_ group: SimilarGroup) {
+        keeps.keep(group.items.map(\.id))
+        marked[group.id] = []
+        if reviewed.insert(group.id).inserted {
+            track("group_reviewed", ["kind": group.kind.rawValue, "action": "keep_all"],
+                  ["items": Double(group.items.count)])
+        }
+    }
+
+    /// Undoes `keepAll` (and single keeps in this row): the row is suggested again.
+    func undoKeep(_ group: SimilarGroup) {
+        keeps.forget(group.items.map(\.id))
+        reviewed.remove(group.id)
+        applyLevel()
+    }
+
     func toggle(_ id: String, in group: SimilarGroup) {
         var set = marked[group.id] ?? []
-        if set.contains(id) { set.remove(id) } else { set.insert(id) }
+        if set.contains(id) {
+            set.remove(id)
+            keeps.keep([id]) // a "no" is remembered: never suggested again
+        } else {
+            set.insert(id)
+            keeps.forget([id])
+        }
         // Never let a whole group go by accident: if everything is marked, keep the best.
         if set.count == group.items.count { set.remove(group.bestID) }
         marked[group.id] = set
@@ -115,7 +150,10 @@ final class SimilarPhotosViewModel {
     /// share of all suggestions, ranked across the whole library.
     private func applyLevel() {
         let pool = groups.filter { !reviewed.contains($0.id) }
-            .flatMap { g in g.suggestedForDeletion.map { (g.id, $0.id, g.confidence[$0.id] ?? 0) } }
+            .flatMap { g in
+                g.suggestedForDeletion.filter { !keeps.contains($0.id) }
+                    .map { (g.id, $0.id, g.confidence[$0.id] ?? 0) }
+            }
             .sorted { $0.2 > $1.2 }
         let take = Int((Double(pool.count) * cleanLevel.rawValue).rounded(.up))
         var next = marked.filter { reviewed.contains($0.key) }
