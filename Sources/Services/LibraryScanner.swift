@@ -71,6 +71,7 @@ enum LibraryScanner {
             while start < result.count {
                 if Task.isCancelled { return (measured, fresh) }
                 let end = min(start + reportEvery, result.count)
+                let batchStart = Date()
                 let batch = processBatch(result, range: start..<end, shots: fetches.screenshotIDs, index: index)
                 for (id, entry) in batch.entries {
                     seen.insert(id)
@@ -80,6 +81,7 @@ enum LibraryScanner {
                 scanned += end - start
                 start = end
                 await report(measured, scanned, fresh)
+                if batch.fresh > 0 { await HeatGuard.cooldown(after: Date().timeIntervalSince(batchStart)) } // cached batches cost ~nothing
             }
         }
         index.retain(only: seen)

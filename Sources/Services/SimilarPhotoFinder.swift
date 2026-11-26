@@ -67,6 +67,7 @@ final class SimilarPhotoFinder: SimilarPhotoFinderProtocol, Sendable {
         var fresh = 0
         var sincePublish = 0
         var cursor = 0
+        var lastPublish = Date()
 
         await withTaskGroup(of: Analyzed?.self) { group in
             func addNext() {
@@ -93,9 +94,8 @@ final class SimilarPhotoFinder: SimilarPhotoFinderProtocol, Sendable {
                         analyzed: analyzed, total: total, groups: out.groups, blurry: out.blurry,
                         isFinished: false, seconds: Date().timeIntervalSince(started)
                     ))
-                    if ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue {
-                        try? await Task.sleep(for: .seconds(2)) // back off on a hot phone
-                    }
+                    await HeatGuard.cooldown(after: Date().timeIntervalSince(lastPublish))
+                    lastPublish = Date()
                 }
                 if !Task.isCancelled { addNext() }
             }

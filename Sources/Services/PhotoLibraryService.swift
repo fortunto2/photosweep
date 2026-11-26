@@ -73,6 +73,7 @@ actor PhotoLibraryService: PhotoLibraryServiceProtocol {
         scanTask = Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             let started = Date()
+            print("[scan] start t=\(started.timeIntervalSince1970)"); fflush(stdout)
             let fetches = LibraryScanner.fetch()
             let counts = fetches.counts
             // Exact counts on screen before anything else is read.
@@ -112,6 +113,7 @@ actor PhotoLibraryService: PhotoLibraryServiceProtocol {
             final.screenshotCount = counts.screenshotCount
             final.otherPhotoCount = counts.otherPhotoCount
             let seconds = Date().timeIntervalSince(started)
+            print("[scan] done s=\(seconds) fresh=\(result.fresh)"); fflush(stdout)
             self.track("scan_finished", ["cache": hasCache ? "warm" : "cold"], [
                 "items": Double(counts.totalCount), "seconds": (seconds * 10).rounded() / 10,
                 "measured": Double(result.fresh), "videos": Double(counts.videoCount),

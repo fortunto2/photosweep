@@ -581,3 +581,11 @@ func photoFormatClassifies(_ uti: String, _ w: Int, _ h: Int, _ expected: PhotoF
     let vm = MediaCleanupViewModel(filter: .everything(.local), library: FakeLibrary())
     #expect(vm.availability == .local)
 }
+
+@Test func heatGuardRestsOnlyWhenHotOrLowPower() {
+    #expect(HeatGuard.restRatio(thermal: .nominal, lowPower: false) == 0)
+    #expect(HeatGuard.restRatio(thermal: .fair, lowPower: false) == 0)
+    #expect(HeatGuard.restRatio(thermal: .nominal, lowPower: true) == 0.5)
+    #expect(HeatGuard.restRatio(thermal: .serious, lowPower: false) == 1)
+    #expect(HeatGuard.restRatio(thermal: .critical, lowPower: true) == 3)
+}

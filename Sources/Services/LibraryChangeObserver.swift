@@ -23,6 +23,7 @@ final class LibraryChangeObserver: NSObject, PHPhotoLibraryChangeObserver, @unch
 
     func photoLibraryDidChange(_ changeInstance: PHChange) {
         // Callback arrives on a background queue; hop to main for the notification.
+        print("[library] change t=\(Date().timeIntervalSince1970)"); fflush(stdout)
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .photoLibraryChanged, object: nil)
         }
