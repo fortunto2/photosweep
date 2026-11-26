@@ -6,6 +6,16 @@ enum MediaFilter: Sendable, Equatable {
     case screenshots
     case photos
     case format(PhotoFormat)
+    /// The whole library, starting at one side of iPhone / iCloud.
+    case everything(AvailabilityFilter)
+
+    /// Lists that mix kinds and formats get a "Type" menu.
+    var showsTypeMenu: Bool {
+        switch self {
+        case .everything, .photos: true
+        default: false
+        }
+    }
 
     /// Every list: "on this iPhone vs only in iCloud" decides what deleting frees.
     var showsAvailability: Bool { true }
@@ -16,6 +26,7 @@ enum MediaFilter: Sendable, Equatable {
         case .screenshots: "screenshots"
         case .photos: "photos"
         case let .format(f): "format_\(f.rawValue)"
+        case .everything: "library"
         }
     }
 
@@ -25,6 +36,9 @@ enum MediaFilter: Sendable, Equatable {
         case .screenshots: "Screenshots"
         case .photos: "Photos"
         case let .format(f): "\(f.title) Photos"
+        case .everything(.local): "On iPhone"
+        case .everything(.cloud): "Only in iCloud"
+        case .everything: "Library"
         }
     }
 
@@ -34,6 +48,7 @@ enum MediaFilter: Sendable, Equatable {
         case .screenshots: "camera.viewfinder"
         case .photos: "photo.fill"
         case .format: "camera.aperture"
+        case .everything: "photo.on.rectangle"
         }
     }
 
@@ -43,6 +58,7 @@ enum MediaFilter: Sendable, Equatable {
         case .screenshots: "No screenshots found."
         case .photos: "No photos measured yet."
         case let .format(f): "No \(f.title) photos found yet."
+        case .everything: "Nothing measured yet."
         }
     }
 }
@@ -52,6 +68,31 @@ enum SortMode: String, CaseIterable, Sendable {
     case size = "Size"
     case duration = "Length"
     case newest = "Newest"
+}
+
+/// Narrows a mixed list to one kind or one photo format.
+enum TypeFilter: String, CaseIterable, Sendable {
+    case all = "All types"
+    case photos = "Photos"
+    case videos = "Videos"
+    case screenshots = "Screenshots"
+    case raw = "RAW"
+    case max48 = "48 MP"
+    case heif = "HEIF"
+    case jpeg = "JPEG"
+
+    func matches(_ asset: MediaAsset) -> Bool {
+        switch self {
+        case .all: true
+        case .photos: asset.kind == .photo
+        case .videos: asset.kind == .video
+        case .screenshots: asset.kind == .screenshot
+        case .raw: asset.format == PhotoFormat.raw.rawValue
+        case .max48: asset.format == PhotoFormat.max48.rawValue
+        case .heif: asset.format == PhotoFormat.heif.rawValue
+        case .jpeg: asset.format == PhotoFormat.jpeg.rawValue
+        }
+    }
 }
 
 /// Show all items, only the on-device ones, or only the iCloud-offloaded ones.
@@ -110,10 +151,19 @@ final class MediaCleanupViewModel {
     var availability: AvailabilityFilter = .all {
         didSet { rebuild() }
     }
+    var typeFilter: TypeFilter = .all {
+        didSet { rebuild() }
+    }
 
     init(filter: MediaFilter, library: PhotoLibraryServiceProtocol) {
         self.filter = filter
         self.library = library
+        if case let .everything(side) = filter { availability = side }
+    }
+
+    /// How many of each type the current iPhone/iCloud side holds, for the Type menu.
+    func count(_ type: TypeFilter) -> Int {
+        allAssets.count { availability.matches($0) && type.matches($0) }
     }
 
     /// Counts for the availability segmented control, so the user sees how many
@@ -147,7 +197,7 @@ final class MediaCleanupViewModel {
 
     /// Recompute the visible list from `allAssets` using current sort + availability.
     private func rebuild() {
-        assets = Self.sorted(allAssets.filter { availability.matches($0) }, by: sortMode)
+        assets = Self.sorted(allAssets.filter { availability.matches($0) && typeFilter.matches($0) }, by: sortMode)
     }
 
     /// Scan progress while the list is still filling in (nil when done).
@@ -188,6 +238,7 @@ final class MediaCleanupViewModel {
         case .screenshots: await library.screenshots()
         case .photos: await library.largestPhotos(limit: videoLimit)
         case let .format(f): await library.photos(format: f)
+        case .everything: await library.everything()
         }
     }
 

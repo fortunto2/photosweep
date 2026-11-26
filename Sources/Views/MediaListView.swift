@@ -7,8 +7,12 @@ struct MediaListView: View {
     @State private var sharePayload: SharePayload?
     @State private var preparingShare = false
 
+    /// False when pushed from another screen's NavigationStack (no second bar).
+    private let ownsStack: Bool
+
     init(filter: MediaFilter, library: PhotoLibraryServiceProtocol,
-         track: @escaping PhotoLibraryService.Track = { _, _, _ in }) {
+         track: @escaping PhotoLibraryService.Track = { _, _, _ in }, ownsStack: Bool = true) {
+        self.ownsStack = ownsStack
         let vm = MediaCleanupViewModel(filter: filter, library: library)
         let source = filter.analyticsSource
         vm.onDeleted = { count, bytes in
@@ -20,20 +24,32 @@ struct MediaListView: View {
     private let columns = [GridItem(.adaptive(minimum: 110), spacing: 8)]
 
     var body: some View {
-        NavigationStack {
+        if ownsStack { NavigationStack { screen } } else { screen }
+    }
+
+    private var screen: some View {
             content
                 .navigationTitle(vm.filter.title)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        if !vm.assets.isEmpty {
+                        if vm.hasAnyAssets {
                             Menu {
                                 Picker("Sort", selection: $vm.sortMode) {
                                     ForEach(SortMode.allCases, id: \.self) { mode in
                                         Text(mode.rawValue).tag(mode)
                                     }
                                 }
+                                if vm.filter.showsTypeMenu {
+                                    Picker("Type", selection: $vm.typeFilter) {
+                                        ForEach(TypeFilter.allCases, id: \.self) { t in
+                                            Text("\(t.rawValue) (\(vm.count(t)))").tag(t)
+                                        }
+                                    }
+                                }
                             } label: {
-                                Label("Sort: \(vm.sortMode.rawValue)", systemImage: "arrow.up.arrow.down")
+                                Label("Sort: \(vm.sortMode.rawValue)",
+                                      systemImage: vm.typeFilter == .all ? "arrow.up.arrow.down"
+                                                                         : "line.3.horizontal.decrease.circle.fill")
                             }
                         }
                     }
@@ -77,7 +93,6 @@ struct MediaListView: View {
                     }
                 }
                 .sheet(item: $sharePayload) { ShareSheet(items: $0.urls) }
-        }
     }
 
     @ViewBuilder

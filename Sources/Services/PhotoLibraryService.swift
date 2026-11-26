@@ -148,6 +148,10 @@ actor PhotoLibraryService: PhotoLibraryServiceProtocol {
         Array(index.assets(of: .photo).sorted { $0.byteSize > $1.byteSize }.prefix(limit))
     }
 
+    func everything() -> [MediaAsset] {
+        index.allAssets().sorted { $0.byteSize > $1.byteSize }
+    }
+
     func libraryFormats() -> FormatMix { index.formatMix() }
 
     func storageSplit() -> StorageSplit { index.storageSplit() }

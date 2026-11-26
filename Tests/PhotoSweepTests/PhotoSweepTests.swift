@@ -565,3 +565,19 @@ func photoFormatClassifies(_ uti: String, _ w: Int, _ h: Int, _ expected: PhotoF
     #expect(split.onPhone.count == 1 && split.onPhone.bytes == 10)
     #expect(split.cloudOnly.count == 1 && split.cloudOnly.bytes == 30)
 }
+
+@Test func typeFilterSplitsKindsAndFormats() {
+    let raw = MediaAsset(id: "r", kind: .photo, byteSize: 75, creationDate: nil, duration: 0,
+                         pixelWidth: 8064, pixelHeight: 6048, isLocal: true, format: "raw")
+    let clip = MediaAsset(id: "v", kind: .video, byteSize: 9, creationDate: nil, duration: 3,
+                          pixelWidth: 1, pixelHeight: 1, isLocal: false)
+    #expect(TypeFilter.raw.matches(raw) && !TypeFilter.raw.matches(clip))
+    #expect(TypeFilter.photos.matches(raw) && TypeFilter.videos.matches(clip))
+    #expect(TypeFilter.all.matches(raw) && TypeFilter.all.matches(clip))
+}
+
+@MainActor
+@Test func libraryListStartsOnTheChosenSide() {
+    let vm = MediaCleanupViewModel(filter: .everything(.local), library: FakeLibrary())
+    #expect(vm.availability == .local)
+}

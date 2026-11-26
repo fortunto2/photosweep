@@ -24,7 +24,8 @@ struct IndexEntry: Sendable, Equatable {
             duration: duration,
             pixelWidth: width,
             pixelHeight: height,
-            isLocal: isLocal
+            isLocal: isLocal,
+            format: format
         )
     }
 }
@@ -98,6 +99,10 @@ final class SizeIndex: @unchecked Sendable {
             }
             return mix
         }
+    }
+
+    func allAssets() -> [MediaAsset] {
+        lock.withLock { entries.map { $0.value.asset(id: $0.key) } }
     }
 
     func storageSplit() -> StorageSplit {

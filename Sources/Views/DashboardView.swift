@@ -101,7 +101,7 @@ struct DashboardView: View {
             .padding(.vertical, 4)
             if heavy == .raw {
                 NavigationLink {
-                    MediaListView(filter: .format(.raw), library: library)
+                    MediaListView(filter: .format(.raw), library: library, ownsStack: false)
                 } label: {
                     Label("Review RAW photos", systemImage: "camera.aperture")
                 }
@@ -128,22 +128,22 @@ struct DashboardView: View {
 
     private func iCloudSection(_ split: StorageSplit) -> some View {
         Section {
-            HStack {
+            link(.everything(.local)) { HStack {
                 Label("Originals on iPhone", systemImage: "iphone")
                 Spacer()
                 VStack(alignment: .trailing) {
                     Text(Format.bytes(split.onPhone.bytes)).font(.body.weight(.semibold))
                     Text("\(split.onPhone.count.formatted()) items").font(.caption).foregroundStyle(.secondary)
                 }
-            }
-            HStack {
+            } }
+            link(.everything(.cloud)) { HStack {
                 Label("Only in iCloud", systemImage: "icloud")
                 Spacer()
                 VStack(alignment: .trailing) {
                     Text(Format.bytes(split.cloudOnly.bytes)).font(.body.weight(.semibold))
                     Text("\(split.cloudOnly.count.formatted()) items · uploaded").font(.caption).foregroundStyle(.secondary)
                 }
-            }
+            } }
         } header: {
             Text("iPhone vs iCloud")
         } footer: {
@@ -176,7 +176,7 @@ struct DashboardView: View {
 
     /// Every number on this screen opens the list behind it, biggest first.
     private func link(_ filter: MediaFilter, @ViewBuilder label: () -> some View) -> some View {
-        NavigationLink { MediaListView(filter: filter, library: library) } label: { label() }
+        NavigationLink { MediaListView(filter: filter, library: library, ownsStack: false) } label: { label() }
     }
 
     private func row(_ title: String, bytes: Int64, count: Int, symbol: String) -> some View {
