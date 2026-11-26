@@ -38,7 +38,7 @@ Tests/             Swift Testing, FakeLibrary
 ```
 
 ## Architecture rules (full: `docs/ARCHITECTURE.md`)
-- `PHAsset` never leaves the `PhotoLibraryService` actor; UI sees only `MediaAsset`.
+- `PHAsset` stays inside the services (`PhotoLibraryService`, `LibraryScanner`, `SimilarPhotoFinder`); UI sees only `MediaAsset`.
 - ViewModels depend on **protocols**, not concrete services — keeps them fake-testable.
 - Views hold no logic.
 
@@ -50,7 +50,7 @@ Tests/             Swift Testing, FakeLibrary
 
 ## Do
 - Add new cleanable categories behind `PhotoLibraryServiceProtocol` + a `MediaFilter` case.
-- Keep asset size reads in `PhotoLibraryService.byteSize` (KVC `"fileSize"`, documented).
+- Keep asset size reads in `LibraryScanner.measure` (KVC `"fileSize"`/`"locallyAvailable"`, documented).
 - Grep `# AI-` before editing a file.
 
 ## Don't
