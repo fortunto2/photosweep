@@ -7,8 +7,8 @@ enum MediaFilter: Sendable, Equatable {
     case photos
     case format(PhotoFormat)
 
-    /// Lists where "on this iPhone vs only in iCloud" decides what deleting frees.
-    var showsAvailability: Bool { self != .screenshots }
+    /// Every list: "on this iPhone vs only in iCloud" decides what deleting frees.
+    var showsAvailability: Bool { true }
 
     var analyticsSource: String {
         switch self {

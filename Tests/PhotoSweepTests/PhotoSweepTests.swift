@@ -530,3 +530,27 @@ func photoFormatClassifies(_ uti: String, _ w: Int, _ h: Int, _ expected: PhotoF
     #expect(again.entry("new")?.format == "raw")
     #expect(again.formatMix().buckets[.raw]?.count == 1)
 }
+
+@MainActor
+@Test func availabilityLimitsQuickCleanToThePhone() async {
+    var out = PhotoGrouper().group([
+        photo("best", t: 0, bytes: 1, vector: [0, 0], blur: 0.2),
+        photo("here", t: 2, bytes: 2, vector: [0.02, 0], blur: 0.4),
+        photo("cloud", t: 4, bytes: 3, vector: [0.03, 0], blur: 0.4),
+    ]).groups
+    // "cloud" lives only in iCloud.
+    let items = out[0].items.map { a in
+        MediaAsset(id: a.id, kind: a.kind, byteSize: a.byteSize, creationDate: a.creationDate, duration: 0,
+                   pixelWidth: a.pixelWidth, pixelHeight: a.pixelHeight, isLocal: a.id != "cloud")
+    }
+    var g = SimilarGroup(kind: out[0].kind, items: items, bestID: out[0].bestID, favoriteIDs: [])
+    g.confidence = out[0].confidence
+    out = [g]
+    let vm = SimilarPhotosViewModel(finder: FakeFinder(out), library: FakeLibrary())
+    vm.cleanLevel = .all
+    await vm.scan()
+    #expect(Set(vm.quickCleanIDs) == ["here", "cloud"])
+    vm.availability = .local
+    #expect(vm.quickCleanIDs == ["here"])
+    #expect(vm.count(.cloud) == 1)
+}

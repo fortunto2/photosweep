@@ -18,7 +18,7 @@ struct SimilarPhotosView: View {
                 if let started = vm.deleteStarted { deleteStatus(started) }
                 controls
                 if !vm.groups.isEmpty { quickClean }
-                ForEach(vm.groups) { group in groupSection(group) }
+                ForEach(vm.visibleGroups) { group in groupSection(group) }
                 if !vm.blurry.isEmpty { blurrySection }
                 if vm.hasScanned && vm.groups.isEmpty && vm.blurry.isEmpty {
                     ContentUnavailableView("No duplicates found", systemImage: "checkmark.seal",
@@ -60,6 +60,14 @@ struct SimilarPhotosView: View {
 
     private var quickClean: some View {
         Section {
+            Picker("Where", selection: $vm.availability) {
+                Text("All").tag(AvailabilityFilter.all)
+                Text("📱 iPhone (\(vm.count(.local)))").tag(AvailabilityFilter.local)
+                Text("☁️ iCloud (\(vm.count(.cloud)))").tag(AvailabilityFilter.cloud)
+            }
+            .pickerStyle(.segmented)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
             Picker("How much", selection: $vm.cleanLevel) {
                 ForEach(CleanLevel.allCases, id: \.self) { Text($0.label).tag($0) }
             }

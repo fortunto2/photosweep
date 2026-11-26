@@ -13,6 +13,11 @@ final class SimilarPhotosViewModel {
     var cleanLevel: CleanLevel = .safest {
         didSet { applyLevel() }
     }
+    /// Which suggestions Quick Clean takes: all, only originals on this iPhone (frees the
+    /// phone), or only iCloud-only ones (frees iCloud). Groups without one are hidden.
+    var availability: AvailabilityFilter = .all {
+        didSet { applyLevel() }
+    }
     var groups: [SimilarGroup] = []
     var blurry: [MediaAsset] = []
     var analyzed = 0
@@ -73,6 +78,16 @@ final class SimilarPhotosViewModel {
     private var quickCleanAssets: [MediaAsset] {
         let ids = Set(quickCleanIDs)
         return groups.flatMap(\.items).filter { ids.contains($0.id) }
+    }
+
+    /// Groups to show under the current availability: those with a suggestion of that kind.
+    var visibleGroups: [SimilarGroup] {
+        guard availability != .all else { return groups }
+        return groups.filter { $0.suggestedForDeletion.contains { availability.matches($0) } }
+    }
+
+    func count(_ filter: AvailabilityFilter) -> Int {
+        groups.reduce(0) { $0 + $1.suggestedForDeletion.count { filter.matches($0) } }
     }
 
     func isMarked(_ id: String, in group: SimilarGroup) -> Bool { marked[group.id]?.contains(id) ?? false }
@@ -155,7 +170,7 @@ final class SimilarPhotosViewModel {
     private func applyLevel() {
         let pool = groups.filter { !reviewed.contains($0.id) }
             .flatMap { g in
-                g.suggestedForDeletion.filter { !keeps.contains($0.id) }
+                g.suggestedForDeletion.filter { !keeps.contains($0.id) && availability.matches($0) }
                     .map { (g.id, $0.id, g.confidence[$0.id] ?? 0) }
             }
             .sorted { $0.2 > $1.2 }
