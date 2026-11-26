@@ -20,7 +20,8 @@ features that pretend otherwise — the UI states the limit plainly. See `docs/p
 - `make test` / `make integration` — unit tests (fake-backed pipeline check)
 - `make sim` — build + run on simulator
 - `make lint` / `make format`
-- `make archive` — Release archive for App Store
+- `make archive` / `make ipa` — Release archive; `ipa` exports via the ASC API key
+- `make ship-dry` — dry run of upload + submit (drop `--dry-run`, add `--confirm` to ship)
 
 Note: the Makefile has a `GUARD_ON` watchdog that self-heals the Xcode 26 clang
 macro-probe hang. If a build ever freezes, that's the known culprit — it's handled.
@@ -28,10 +29,11 @@ macro-probe hang. If a build ever freezes, that's the known culprit — it's han
 ## Layout
 ```
 Sources/App        @main entry
-Sources/Models     MediaAsset, StorageInfo, LibraryBreakdown, AppCacheGuide (Sendable)
-Sources/Services   PhotoLibraryService (actor), StorageService, ThumbnailProvider + Protocols/
-Sources/ViewModels DashboardViewModel, MediaCleanupViewModel (@Observable @MainActor)
-Sources/Views      Root, Dashboard, MediaList, AppGuide, Permission + Components/
+Sources/Models     MediaAsset, StorageInfo, LibraryBreakdown, LibraryScanProgress, SimilarGroup, AppCacheGuide (Sendable)
+Sources/Services   PhotoLibraryService (actor, shared size scan) · LibraryScanner + SizeIndex (sizes, cached on disk)
+                   SimilarPhotoFinder + PhotoGrouper + FeatureStore (duplicates, Vision) · LaunchClock · Protocols/
+Sources/ViewModels Dashboard, MediaCleanup, SimilarPhotos (@Observable @MainActor)
+Sources/Views      Root, Dashboard, SimilarPhotos, MediaList, AppGuide, Permission + Components/
 Tests/             Swift Testing, FakeLibrary
 ```
 
@@ -39,6 +41,12 @@ Tests/             Swift Testing, FakeLibrary
 - `PHAsset` never leaves the `PhotoLibraryService` actor; UI sees only `MediaAsset`.
 - ViewModels depend on **protocols**, not concrete services — keeps them fake-testable.
 - Views hold no logic.
+
+## Performance contract (measured on a 101k-asset iPhone, see docs/ARCHITECTURE.md)
+- First frame never waits for sizes: counts come from `PHFetchResult.count` (1.5 s to content).
+- Sizes are read once and cached in `SizeIndex` (id + modificationDate); warm launch verifies in ~3 s.
+  A cold size pass is ~230 s and bound by PhotoKit, not CPU: parallel chunks did not shorten it.
+- `make` + `_work/measure-launch.sh` style: `[launch] <mark> ms=` lines on stdout via `devicectl --console`.
 
 ## Do
 - Add new cleanable categories behind `PhotoLibraryServiceProtocol` + a `MediaFilter` case.

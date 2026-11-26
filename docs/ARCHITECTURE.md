@@ -46,3 +46,32 @@ is impractical on-device; the fake-backed tests are the deterministic pipeline c
 - **Deletion timing.** `PHPhotoLibrary.performChanges` returns after the *local*
   commit + the system confirmation dialog; iCloud propagation is background and does
   not block. We update the cache locally on success and skip the self-induced rescan.
+
+## Launch and scanning (1.1)
+
+v1.0 read `PHAssetResource` sizes for every asset before the dashboard showed anything:
+229–239 s on Rustam's iPhone 14 Pro Max (69,364 photos + 32,307 videos).
+
+1.1:
+- `PhotoLibraryService.scanUpdates(force:)` is one shared scan, broadcast to every screen. Its
+  first element carries exact counts (`PHFetchResult.count`), then cached sizes from `SizeIndex`,
+  then measured progress every 4096 assets, videos first.
+- `LibraryScanner` does the walk outside the actor (`concurrentPerform` chunks). Measured: the
+  cold pass stays ~234 s — `assetResources` is serialized by the photo library service, so
+  parallelism does not help; the index is what makes later launches fast.
+- `SizeIndex` (Application Support, TSV) keys entries by id + modificationDate. Lists (largest
+  videos, screenshots) are read from it while it fills.
+
+| iPhone 14 Pro Max, 101k assets | v1.0 | 1.1 cold | 1.1 warm |
+|---|---|---|---|
+| first library content | 229 s | 1.4 s | 1.5 s |
+| sizes complete | 229 s | 234 s (in background) | 3.4 s |
+
+## Similar photos (1.1)
+
+`SimilarPhotoFinder` (ported from PhotoSift) runs Vision feature prints + Crete-Roffet blur
+(from life2film va-features) on 320 px local thumbnails, 4 at a time; `PhotoGrouper` (pure,
+unit-tested) groups exact copies (same pixels + bytes) and retakes (≤5 min apart, distance
+< 0.45) with union-find. Vision quality (aesthetics, face capture) runs only for group members.
+`FeatureStore` caches vectors as Float16 so rescans only analyze new photos. Favorites are never
+suggested for deletion.
