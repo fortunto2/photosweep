@@ -76,11 +76,23 @@ struct MediaListView: View {
     @ViewBuilder
     private var content: some View {
         if vm.isLoading && !vm.hasAnyAssets {
-            ProgressView("Scanning…")
+            if let fraction = vm.scanFraction {
+                ProgressView(value: fraction) { Text("Measuring sizes…") }
+                    .padding(40)
+            } else {
+                ProgressView("Scanning…")
+            }
         } else if !vm.hasAnyAssets {
             ContentUnavailableView(vm.filter.title, systemImage: vm.filter.systemImage, description: Text(vm.filter.emptyMessage))
         } else {
             ScrollView {
+                if let fraction = vm.scanFraction {
+                    ProgressView(value: fraction) {
+                        Text("Still measuring the library… biggest found so far")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12).padding(.top, 8)
+                }
                 if vm.filter == .largeVideos {
                     Picker("Show", selection: $vm.availability) {
                         Text("All").tag(AvailabilityFilter.all)

@@ -4,7 +4,9 @@ import SuperDuperAnalytics
 @main
 struct PhotoSweepApp: App {
     // Shared, Sendable backends created once for the app lifetime.
-    private let library = PhotoLibraryService()
+    private let library = PhotoLibraryService(track: { name, props, metrics in
+        Analytics.track(name, props: props, metrics: metrics)
+    })
     private let storage = StorageService()
 
     @Environment(\.scenePhase) private var scenePhase
@@ -14,7 +16,12 @@ struct PhotoSweepApp: App {
     init() {
         LaunchClock.mark("app_init")
         guard !ProcessInfo.processInfo.arguments.contains("-uiTesting") else { return }
+        #if DEBUG
+        // Debug/dev installs ride as `auto` so ingest files them as machines, not people.
+        Analytics.configure(source: "photosweep", automated: true)
+        #else
         Analytics.configure(source: "photosweep")
+        #endif
         Analytics.track("app_launched")
     }
 

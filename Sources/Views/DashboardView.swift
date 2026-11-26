@@ -18,10 +18,19 @@ struct DashboardView: View {
                 }
 
                 if let breakdown = vm.breakdown {
-                    Section("Your photo library") {
+                    Section {
                         row("Videos", bytes: breakdown.videoBytes, count: breakdown.videoCount, symbol: "video.fill")
                         row("Screenshots", bytes: breakdown.screenshotBytes, count: breakdown.screenshotCount, symbol: "camera.viewfinder")
                         row("Other photos", bytes: breakdown.otherPhotoBytes, count: breakdown.otherPhotoCount, symbol: "photo.fill")
+                    } header: {
+                        Text("Your photo library")
+                    } footer: {
+                        if let text = vm.progressText {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.mini)
+                                Text(text)
+                            }
+                        }
                     }
                     Section {
                         Text("PhotoSweep can only free space held by your photo library. “System Data” and other apps’ caches are managed by iOS and can’t be cleared by any app — see the Apps tab for how to clear those manually.")
@@ -38,13 +47,12 @@ struct DashboardView: View {
             .navigationTitle("PhotoSweep")
             .overlay {
                 if vm.isLoading && vm.breakdown == nil {
-                    ProgressView("Scanning library…")
+                    ProgressView()
                 }
             }
-            .refreshable { await vm.load() }
-            // Refresh each time the tab is shown (cheaper than a full-library rescan on
-            // every background change — the breakdown enumerates the whole library).
-            .onAppear { Task { await vm.load() } }
+            .refreshable { await vm.load(force: true) }
+            // Each visit asks the shared scan; a recent finished one is replayed, not re-run.
+            .task { await vm.load() }
         }
     }
 
@@ -53,8 +61,11 @@ struct DashboardView: View {
             Label(title, systemImage: symbol)
             Spacer()
             VStack(alignment: .trailing) {
-                Text(Format.bytes(bytes)).font(.body.weight(.semibold))
-                Text("\(count) items").font(.caption).foregroundStyle(.secondary)
+                Text(Format.bytes(bytes))
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(vm.sizesAreSettled ? .primary : .secondary)
+                    .contentTransition(.numericText())
+                Text("\(count.formatted()) items").font(.caption).foregroundStyle(.secondary)
             }
         }
     }

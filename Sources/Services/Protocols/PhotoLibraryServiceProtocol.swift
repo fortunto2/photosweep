@@ -7,14 +7,19 @@ protocol PhotoLibraryServiceProtocol: Sendable {
     @discardableResult
     func requestAuthorization() async -> PHAuthorizationStatus
 
-    /// Videos sorted by physical size, largest first.
-    func fetchLargeVideos(limit: Int) async -> [MediaAsset]
+    /// Progress of the shared background size scan. The first element arrives at once
+    /// with exact counts; the stream finishes after the `.finished` element. A scan that
+    /// finished recently is replayed instead of re-run unless `force` is set.
+    func scanUpdates(force: Bool) async -> AsyncStream<LibraryScanProgress>
 
-    /// Screenshots (newest first).
-    func fetchScreenshots() async -> [MediaAsset]
+    /// Videos measured so far, largest first. Complete once the scan has finished.
+    func largestVideos(limit: Int) async -> [MediaAsset]
 
-    /// Aggregate cleanable-bucket sizes for the dashboard.
-    func libraryBreakdown() async -> LibraryBreakdown
+    /// Screenshots measured so far, newest first.
+    func screenshots() async -> [MediaAsset]
+
+    /// Fresh on-device/iCloud state for a short list; drops assets that no longer exist.
+    func refreshLocality(_ assets: [MediaAsset]) async -> [MediaAsset]
 
     /// Move the given assets to Recently Deleted. iOS shows its own confirmation
     /// alert; throws `PHPhotosError.userCancelled`-style errors if the user declines.

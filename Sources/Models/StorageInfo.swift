@@ -28,4 +28,13 @@ struct LibraryBreakdown: Sendable, Equatable {
     var otherPhotoCount: Int = 0
 
     var totalBytes: Int64 { videoBytes + screenshotBytes + otherPhotoBytes }
+    var totalCount: Int { videoCount + screenshotCount + otherPhotoCount }
+
+    mutating func add(_ kind: MediaKind, bytes: Int64, count: Int = 1) {
+        switch kind {
+        case .video: videoBytes += bytes; videoCount += count
+        case .screenshot: screenshotBytes += bytes; screenshotCount += count
+        case .photo: otherPhotoBytes += bytes; otherPhotoCount += count
+        }
+    }
 }

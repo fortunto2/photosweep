@@ -1,8 +1,30 @@
+import Foundation
 import Photos
 
-/// Real photo-library backend. An `actor` so all PhotoKit access is serialized
-/// off the main thread; it only ever hands back `Sendable` `MediaAsset` snapshots.
+/// Real photo-library backend. An `actor` so all PhotoKit state is serialized off the
+/// main thread; it only ever hands back `Sendable` snapshots (`MediaAsset`, progress).
+///
+/// One size scan runs at a time and is shared: the dashboard and both lists subscribe
+/// to `scanUpdates`, and the heavy walk itself runs in `LibraryScanner` outside the actor.
 actor PhotoLibraryService: PhotoLibraryServiceProtocol {
+    typealias Track = @Sendable (_ name: String, _ props: [String: String], _ metrics: [String: Double]) -> Void
+
+    private let index: SizeIndex
+    private let track: Track
+    private var indexLoaded = false
+
+    private var scanTask: Task<Void, Never>?
+    private var latest: LibraryScanProgress?
+    private var lastFinished: Date?
+    private var listeners: [UUID: AsyncStream<LibraryScanProgress>.Continuation] = [:]
+
+    /// A finished scan younger than this is reused instead of walking 100k assets again.
+    private let freshFor: TimeInterval = 120
+
+    init(index: SizeIndex = SizeIndex(url: SizeIndex.defaultURL), track: @escaping Track = { _, _, _ in }) {
+        self.index = index
+        self.track = track
+    }
 
     nonisolated func authorizationStatus() -> PHAuthorizationStatus {
         PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -13,64 +35,133 @@ actor PhotoLibraryService: PhotoLibraryServiceProtocol {
         await PHPhotoLibrary.requestAuthorization(for: .readWrite)
     }
 
-    func fetchLargeVideos(limit: Int) async -> [MediaAsset] {
-        let options = PHFetchOptions()
-        options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.video.rawValue)
-        let result = PHAsset.fetchAssets(with: options)
+    // MARK: - Scan
 
-        var assets: [MediaAsset] = []
-        assets.reserveCapacity(result.count)
-        result.enumerateObjects { asset, _, _ in
-            assets.append(Self.snapshot(of: asset, kind: .video))
+    func scanUpdates(force: Bool) -> AsyncStream<LibraryScanProgress> {
+        let (stream, continuation) = AsyncStream<LibraryScanProgress>.makeStream()
+        let isFresh = lastFinished.map { Date().timeIntervalSince($0) < freshFor } ?? false
+        if let latest, latest.isFinished, isFresh, !force, scanTask == nil {
+            continuation.yield(latest)
+            continuation.finish()
+            return stream
         }
-        return Array(assets.sorted { $0.byteSize > $1.byteSize }.prefix(limit))
+        let id = UUID()
+        listeners[id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { await self?.removeListener(id) }
+        }
+        if let latest, !latest.isFinished { continuation.yield(latest) }
+        if scanTask == nil { startScan() }
+        return stream
     }
 
-    func fetchScreenshots() async -> [MediaAsset] {
-        let collections = PHAssetCollection.fetchAssetCollections(
-            with: .smartAlbum, subtype: .smartAlbumScreenshots, options: nil
-        )
-        guard let album = collections.firstObject else { return [] }
+    private func removeListener(_ id: UUID) { listeners[id] = nil }
 
-        let options = PHFetchOptions()
-        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        let result = PHAsset.fetchAssets(in: album, options: options)
-
-        var assets: [MediaAsset] = []
-        assets.reserveCapacity(result.count)
-        result.enumerateObjects { asset, _, _ in
-            assets.append(Self.snapshot(of: asset, kind: .screenshot))
+    private func publish(_ progress: LibraryScanProgress) {
+        latest = progress
+        for continuation in listeners.values {
+            continuation.yield(progress)
+            if progress.isFinished { continuation.finish() }
         }
-        return assets
+        if progress.isFinished { listeners.removeAll() }
     }
 
-    func libraryBreakdown() async -> LibraryBreakdown {
-        var breakdown = LibraryBreakdown()
+    private func startScan() {
+        let index = index
+        let needsLoad = !indexLoaded
+        indexLoaded = true
+        scanTask = Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+            let started = Date()
+            let fetches = LibraryScanner.fetch()
+            let counts = fetches.counts
+            // Exact counts on screen before anything else is read.
+            await self.publish(LibraryScanProgress(
+                phase: .cached, breakdown: counts, scanned: 0, total: counts.totalCount,
+                hasCachedSizes: false, seconds: Date().timeIntervalSince(started), measuredFresh: 0
+            ))
+            if needsLoad { index.load() }
+            let cached = index.breakdown()
+            let hasCache = cached.totalCount > 0
+            var shown = counts
+            if hasCache {
+                shown.videoBytes = cached.videoBytes
+                shown.screenshotBytes = cached.screenshotBytes
+                shown.otherPhotoBytes = cached.otherPhotoBytes
+                await self.publish(LibraryScanProgress(
+                    phase: .cached, breakdown: shown, scanned: 0, total: counts.totalCount,
+                    hasCachedSizes: true, seconds: Date().timeIntervalSince(started), measuredFresh: 0
+                ))
+            }
+            self.track("scan_started", ["cache": hasCache ? "warm" : "cold"], ["items": Double(counts.totalCount)])
 
-        // Screenshots first so we don't double-count them as "other photos".
-        let screenshots = await fetchScreenshots()
-        let screenshotIDs = Set(screenshots.map(\.id))
-        for shot in screenshots {
-            breakdown.screenshotBytes += shot.byteSize
-            breakdown.screenshotCount += 1
+            let result = await LibraryScanner.scan(fetches, index: index) { measured, scanned, fresh in
+                var b = measured
+                b.videoCount = counts.videoCount
+                b.screenshotCount = counts.screenshotCount
+                b.otherPhotoCount = counts.otherPhotoCount
+                await self.publish(LibraryScanProgress(
+                    phase: .measuring, breakdown: hasCache ? shown : b, scanned: scanned,
+                    total: counts.totalCount, hasCachedSizes: hasCache,
+                    seconds: Date().timeIntervalSince(started), measuredFresh: fresh
+                ))
+            }
+            index.saveIfNeeded()
+            var final = result.breakdown
+            final.videoCount = counts.videoCount
+            final.screenshotCount = counts.screenshotCount
+            final.otherPhotoCount = counts.otherPhotoCount
+            let seconds = Date().timeIntervalSince(started)
+            self.track("scan_finished", ["cache": hasCache ? "warm" : "cold"], [
+                "items": Double(counts.totalCount), "seconds": (seconds * 10).rounded() / 10,
+                "measured": Double(result.fresh), "videos": Double(counts.videoCount),
+                "screenshots": Double(counts.screenshotCount), "gb": Double(final.totalBytes) / 1e9,
+            ])
+            await self.finish(LibraryScanProgress(
+                phase: .finished, breakdown: final, scanned: counts.totalCount, total: counts.totalCount,
+                hasCachedSizes: false, seconds: seconds, measuredFresh: result.fresh
+            ))
         }
+    }
 
-        let all = PHAsset.fetchAssets(with: nil)
-        all.enumerateObjects { asset, _, _ in
-            let size = Self.byteSize(of: asset)
-            switch asset.mediaType {
-            case .video:
-                breakdown.videoBytes += size
-                breakdown.videoCount += 1
-            case .image where !screenshotIDs.contains(asset.localIdentifier):
-                breakdown.otherPhotoBytes += size
-                breakdown.otherPhotoCount += 1
-            default:
-                break
+    private func finish(_ progress: LibraryScanProgress) {
+        scanTask = nil
+        lastFinished = Date()
+        publish(progress)
+    }
+
+    // MARK: - Lists (read from the index; complete once the scan has passed them)
+
+    func largestVideos(limit: Int) -> [MediaAsset] {
+        Array(index.assets(of: .video).sorted { $0.byteSize > $1.byteSize }.prefix(limit))
+    }
+
+    func screenshots() -> [MediaAsset] {
+        index.assets(of: .screenshot).sorted { ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast) }
+    }
+
+    /// Re-reads on-device state for a short list (the index may predate an iCloud
+    /// offload or download). ~2 ms per asset, so only for what is on screen.
+    func refreshLocality(_ assets: [MediaAsset]) -> [MediaAsset] {
+        let fetch = PHAsset.fetchAssets(withLocalIdentifiers: assets.map(\.id), options: nil)
+        var local: [String: Bool] = [:]
+        fetch.enumerateObjects { asset, _, _ in
+            let resources = PHAssetResource.assetResources(for: asset)
+            local[asset.localIdentifier] = !resources.contains {
+                ($0.value(forKey: "locallyAvailable") as? Bool) == false
             }
         }
-        return breakdown
+        return assets.compactMap { asset in
+            guard let isLocal = local[asset.id] else { return nil } // deleted meanwhile
+            return MediaAsset(
+                id: asset.id, kind: asset.kind, byteSize: asset.byteSize, creationDate: asset.creationDate,
+                duration: asset.duration, pixelWidth: asset.pixelWidth, pixelHeight: asset.pixelHeight,
+                isLocal: isLocal
+            )
+        }
     }
+
+    // MARK: - Delete
 
     func delete(assetIDs: [String]) async throws {
         let fetch = PHAsset.fetchAssets(withLocalIdentifiers: assetIDs, options: nil)
@@ -81,54 +172,8 @@ actor PhotoLibraryService: PhotoLibraryServiceProtocol {
         try await PHPhotoLibrary.shared().performChanges {
             PHAssetChangeRequest.deleteAssets(assets as NSArray)
         }
-    }
-
-    // MARK: - Helpers
-
-    private static func snapshot(of asset: PHAsset, kind: MediaKind) -> MediaAsset {
-        MediaAsset(
-            id: asset.localIdentifier,
-            kind: kind,
-            byteSize: byteSize(of: asset),
-            creationDate: asset.creationDate,
-            duration: asset.duration,
-            pixelWidth: asset.pixelWidth,
-            pixelHeight: asset.pixelHeight,
-            isLocal: isLocallyAvailable(of: asset)
-        )
-    }
-
-    /// Whether the full original is on-device (vs. offloaded to iCloud).
-    ///
-    /// AI-NOTE: `PHAssetResource` exposes the KVC flag `"locallyAvailable"` (same
-    /// family as `"fileSize"`). If any resource reports not-local, the original has
-    /// been optimized to iCloud. No network hit — safe to call while scanning.
-    static func isLocallyAvailable(of asset: PHAsset) -> Bool {
-        let resources = PHAssetResource.assetResources(for: asset)
-        guard !resources.isEmpty else { return true }
-        for resource in resources {
-            if let local = resource.value(forKey: "locallyAvailable") as? Bool, local == false {
-                return false
-            }
-        }
-        return true
-    }
-
-    /// Physical bytes for an asset.
-    ///
-    /// AI-NOTE: `PHAssetResource` exposes no public size property, but the private
-    /// KVC key `"fileSize"` is stable and used by every photo-cleaner app. We sum
-    /// across resources (a Live Photo / video may have several). Falls back to 0 if
-    /// the key ever disappears — the app still works, just shows 0 for that item.
-    static func byteSize(of asset: PHAsset) -> Int64 {
-        PHAssetResource.assetResources(for: asset).reduce(Int64(0)) { total, resource in
-            if let size = resource.value(forKey: "fileSize") as? Int64 {
-                return total + size
-            }
-            if let size = resource.value(forKey: "fileSize") as? Int {
-                return total + Int64(size)
-            }
-            return total
-        }
+        index.remove(assetIDs)
+        lastFinished = nil // totals changed; next dashboard visit re-walks (warm, fast)
+        Task.detached(priority: .utility) { [index] in index.saveIfNeeded() }
     }
 }

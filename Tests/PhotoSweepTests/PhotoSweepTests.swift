@@ -166,26 +166,84 @@ import Testing
 /// In-memory fake. `@unchecked Sendable` is fine here: tests drive it serially.
 private final class FakeLibrary: PhotoLibraryServiceProtocol, @unchecked Sendable {
     private var videos: [MediaAsset]
-    private var screenshots: [MediaAsset]
+    private var screenshotList: [MediaAsset]
     private(set) var videoFetchCount = 0
 
     init(videos: [MediaAsset] = [], screenshots: [MediaAsset] = []) {
         self.videos = videos.sorted { $0.byteSize > $1.byteSize }
-        self.screenshots = screenshots
+        self.screenshotList = screenshots
     }
 
     func authorizationStatus() -> PHAuthorizationStatus { .authorized }
     func requestAuthorization() async -> PHAuthorizationStatus { .authorized }
-    func fetchLargeVideos(limit: Int) async -> [MediaAsset] {
+    func scanUpdates(force: Bool) async -> AsyncStream<LibraryScanProgress> {
         videoFetchCount += 1
-        return Array(videos.prefix(limit))
+        var breakdown = LibraryBreakdown()
+        for v in videos { breakdown.add(.video, bytes: v.byteSize) }
+        for s in screenshotList { breakdown.add(.screenshot, bytes: s.byteSize) }
+        let final = LibraryScanProgress(
+            phase: .finished, breakdown: breakdown, scanned: breakdown.totalCount,
+            total: breakdown.totalCount, hasCachedSizes: false, seconds: 0, measuredFresh: 0
+        )
+        return AsyncStream { continuation in
+            continuation.yield(final)
+            continuation.finish()
+        }
     }
-    func fetchScreenshots() async -> [MediaAsset] { screenshots }
-    func libraryBreakdown() async -> LibraryBreakdown { LibraryBreakdown() }
+    func largestVideos(limit: Int) async -> [MediaAsset] { Array(videos.prefix(limit)) }
+    func screenshots() async -> [MediaAsset] { screenshotList }
+    func refreshLocality(_ assets: [MediaAsset]) async -> [MediaAsset] { assets }
 
     func delete(assetIDs: [String]) async throws {
         let drop = Set(assetIDs)
         videos.removeAll { drop.contains($0.id) }
-        screenshots.removeAll { drop.contains($0.id) }
+        screenshotList.removeAll { drop.contains($0.id) }
     }
+}
+
+// MARK: - Size index (the launch cache)
+
+@Test func sizeIndexRoundTripsAndDropsGone() throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("idx-\(UUID().uuidString).tsv")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let index = SizeIndex(url: url)
+    let video = IndexEntry(mod: 10, bytes: 500, isLocal: false, kind: .video, created: 1_700_000_000,
+                           duration: 12.5, width: 1920, height: 1080)
+    let shot = IndexEntry(mod: 0, bytes: 40, isLocal: true, kind: .screenshot, created: 0,
+                          duration: 0, width: 1, height: 2)
+    index.set([("A/L0/001", video), ("B/L0/001", shot)])
+    index.saveIfNeeded()
+
+    let reloaded = SizeIndex(url: url)
+    reloaded.load()
+    #expect(reloaded.entry("A/L0/001") == video)
+    #expect(reloaded.entry("B/L0/001") == shot)
+    #expect(reloaded.breakdown().videoBytes == 500)
+    #expect(reloaded.breakdown().screenshotCount == 1)
+    #expect(reloaded.assets(of: .video).first?.isLocal == false)
+
+    reloaded.retain(only: ["A/L0/001"])
+    #expect(reloaded.count == 1)
+}
+
+@Test func sizeIndexIgnoresForeignFile() throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("idx-\(UUID().uuidString).tsv")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try "garbage\nA\t1\t2\n".write(to: url, atomically: true, encoding: .utf8)
+    let index = SizeIndex(url: url)
+    index.load()
+    #expect(index.count == 0)
+}
+
+@MainActor
+@Test func dashboardShowsCountsFromScan() async {
+    let fake = FakeLibrary(videos: [
+        MediaAsset(id: "a", kind: .video, byteSize: 100, creationDate: nil, duration: 1, pixelWidth: 1, pixelHeight: 1, isLocal: true),
+    ])
+    let vm = DashboardViewModel(storage: StorageService(), library: fake)
+    await vm.load()
+    #expect(vm.breakdown?.videoCount == 1)
+    #expect(vm.breakdown?.videoBytes == 100)
+    #expect(vm.sizesAreSettled)
+    #expect(vm.progressText == nil)
 }

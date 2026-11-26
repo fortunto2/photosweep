@@ -129,24 +129,43 @@ final class MediaCleanupViewModel {
         assets = Self.sorted(allAssets.filter { availability.matches($0) }, by: sortMode)
     }
 
-    /// Scans the library. No-op if already loaded unless `force` is set — so tab
-    /// switches reuse the cache, while pull-to-refresh and library-change events
-    /// (deletions, edits made elsewhere) pass `force: true` to get fresh data.
+    /// Scan progress while the list is still filling in (nil when done).
+    var scanFraction: Double?
+
+    /// Streams the list in as the shared size scan measures it. No-op if already loaded
+    /// unless `force` is set — so tab switches reuse the cache, while pull-to-refresh and
+    /// library-change events (deletions, edits made elsewhere) pass `force: true`.
     func load(force: Bool = false) async {
         guard force || !hasLoaded else { return }
+        guard !isLoading else { return }
         isLoading = true
-        defer { isLoading = false }
-        switch filter {
-        case .largeVideos:
-            allAssets = await library.fetchLargeVideos(limit: videoLimit)
-        case .screenshots:
-            allAssets = await library.fetchScreenshots()
+        defer {
+            isLoading = false
+            scanFraction = nil
+        }
+        var lastCount = -1
+        for await step in await library.scanUpdates(force: force) {
+            scanFraction = step.isFinished ? nil : step.fraction
+            var items = await currentItems()
+            // Re-check iCloud state for the videos actually shown, once, at the end.
+            if step.isFinished, filter == .largeVideos { items = await library.refreshLocality(items) }
+            // Skip identical intermediate lists (warm scan: nothing new to show).
+            guard step.isFinished || items.count != lastCount else { continue }
+            lastCount = items.count
+            allAssets = items
+            rebuild()
         }
         hasLoaded = true
-        rebuild()
         // Drop selections whose assets no longer exist.
         let ids = Set(allAssets.map(\.id))
         selected = selected.intersection(ids)
+    }
+
+    private func currentItems() async -> [MediaAsset] {
+        switch filter {
+        case .largeVideos: await library.largestVideos(limit: videoLimit)
+        case .screenshots: await library.screenshots()
+        }
     }
 
     func toggle(_ id: String) {
