@@ -42,10 +42,10 @@ private struct MainTabView: View {
             SimilarPhotosView(finder: finder, library: library, track: track)
                 .tabItem { Label("Similar", systemImage: "square.on.square") }
 
-            MediaListView(filter: .largeVideos, library: library)
+            MediaListView(filter: .largeVideos, library: library, track: track)
                 .tabItem { Label("Videos", systemImage: "video.fill") }
 
-            MediaListView(filter: .screenshots, library: library)
+            MediaListView(filter: .screenshots, library: library, track: track)
                 .tabItem { Label("Screens", systemImage: "camera.viewfinder") }
 
             AppGuideView()

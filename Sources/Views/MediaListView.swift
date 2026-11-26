@@ -7,8 +7,14 @@ struct MediaListView: View {
     @State private var sharePayload: SharePayload?
     @State private var preparingShare = false
 
-    init(filter: MediaFilter, library: PhotoLibraryServiceProtocol) {
-        _vm = State(initialValue: MediaCleanupViewModel(filter: filter, library: library))
+    init(filter: MediaFilter, library: PhotoLibraryServiceProtocol,
+         track: @escaping PhotoLibraryService.Track = { _, _, _ in }) {
+        let vm = MediaCleanupViewModel(filter: filter, library: library)
+        let source = filter == .largeVideos ? "videos" : "screenshots"
+        vm.onDeleted = { count, bytes in
+            track("photos_deleted", ["source": source], ["count": Double(count), "mb": Double(bytes) / 1e6])
+        }
+        _vm = State(initialValue: vm)
     }
 
     private let columns = [GridItem(.adaptive(minimum: 110), spacing: 8)]
@@ -35,6 +41,7 @@ struct MediaListView: View {
                         if !vm.assets.isEmpty {
                             Menu {
                                 Button("Select all visible", systemImage: "checkmark.circle") { vm.selectAll() }
+                                Button("Older than 30 days", systemImage: "calendar") { vm.selectOlderThan(days: 30) }
                                 Button("Older than 1 year", systemImage: "calendar") { vm.selectOlderThan(days: 365) }
                                 Button("Older than 6 months", systemImage: "calendar") { vm.selectOlderThan(days: 182) }
                                 if !vm.selected.isEmpty {
@@ -116,36 +123,66 @@ struct MediaListView: View {
                     )
                     .padding(.top, 40)
                 } else {
-                    LazyVGrid(columns: columns, spacing: 8) {
-                        ForEach(vm.assets) { asset in
-                            AssetGridItem(asset: asset, isSelected: vm.selected.contains(asset.id))
-                                .onTapGesture { vm.toggle(asset.id) }
-                                .contextMenu {
-                                    Section(Format.date(asset.creationDate)) {
-                                        Button {
-                                            previewAsset = asset
-                                        } label: {
-                                            Label(asset.kind == .video ? "Play preview" : "View", systemImage: "play.circle")
-                                        }
-                                        Button {
-                                            vm.toggle(asset.id)
-                                        } label: {
-                                            Label(vm.selected.contains(asset.id) ? "Deselect" : "Select",
-                                                  systemImage: vm.selected.contains(asset.id) ? "circle" : "checkmark.circle")
-                                        }
-                                        Button {
-                                            share([asset.id])
-                                        } label: {
-                                            Label("Share / Export", systemImage: "square.and.arrow.up")
-                                        }
-                                    }
+                    if vm.filter == .screenshots {
+                        LazyVGrid(columns: columns, spacing: 8, pinnedViews: [.sectionHeaders]) {
+                            ForEach(vm.monthSections) { section in
+                                Section {
+                                    ForEach(section.items) { asset in cell(asset) }
+                                } header: {
+                                    monthHeader(section)
                                 }
+                            }
                         }
+                        .padding(8)
+                    } else {
+                        LazyVGrid(columns: columns, spacing: 8) {
+                            ForEach(vm.assets) { asset in cell(asset) }
+                        }
+                        .padding(8)
                     }
-                    .padding(8)
                 }
             }
         }
+    }
+
+    private func cell(_ asset: MediaAsset) -> some View {
+        AssetGridItem(asset: asset, isSelected: vm.selected.contains(asset.id))
+            .onTapGesture { vm.toggle(asset.id) }
+            .contextMenu {
+                Section(Format.date(asset.creationDate)) {
+                    Button {
+                        previewAsset = asset
+                    } label: {
+                        Label(asset.kind == .video ? "Play preview" : "View", systemImage: "play.circle")
+                    }
+                    Button {
+                        vm.toggle(asset.id)
+                    } label: {
+                        Label(vm.selected.contains(asset.id) ? "Deselect" : "Select",
+                              systemImage: vm.selected.contains(asset.id) ? "circle" : "checkmark.circle")
+                    }
+                    Button {
+                        share([asset.id])
+                    } label: {
+                        Label("Share / Export", systemImage: "square.and.arrow.up")
+                    }
+                }
+            }
+    }
+
+    private func monthHeader(_ section: MediaCleanupViewModel.MonthSection) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(section.title).font(.subheadline.weight(.semibold))
+                Text("\(section.items.count) · \(Format.bytes(section.bytes))").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(vm.isSelected(section) ? "Deselect" : "Select month") { vm.toggle(section) }
+                .font(.caption.weight(.semibold))
+                .buttonStyle(.bordered)
+        }
+        .padding(.horizontal, 4).padding(.vertical, 6)
+        .background(.bar)
     }
 
     @ViewBuilder

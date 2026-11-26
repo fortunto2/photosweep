@@ -121,6 +121,8 @@ final class SimilarPhotoFinder: SimilarPhotoFinderProtocol, Sendable {
         metrics["blurry"] = Double(final.blurry.count)
         metrics["reclaimable_mb"] = Double(reclaimable) / 1e6
         track("similar_scan_finished", ["scope": scope.rawValue], metrics)
+        print("[similar] scope=\(scope.rawValue) \(metrics.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))")
+        fflush(stdout)
         continuation.yield(SimilarScanProgress(
             analyzed: total, total: total, groups: final.groups, blurry: final.blurry,
             isFinished: true, seconds: seconds

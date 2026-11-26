@@ -234,7 +234,7 @@ private final class FakeLibrary: PhotoLibraryServiceProtocol, @unchecked Sendabl
     try "garbage\nA\t1\t2\n".write(to: url, atomically: true, encoding: .utf8)
     let index = SizeIndex(url: url)
     index.load()
-    #expect(index.count == 0)
+    #expect(index.count == 0) // swiftlint:disable:this empty_count
 }
 
 @MainActor
@@ -261,7 +261,7 @@ private func photo(_ id: String, t: Double, bytes: Int64 = 1_000, vector: [Float
     )
 }
 
-@Test func retakesGroupAndSharpestIsKept() {
+@Test func retakesGroupAndSharpestIsKept() throws {
     let out = PhotoGrouper().group([
         photo("a", t: 1_000, bytes: 1, vector: [0, 0, 0], blur: 0.45),
         photo("b", t: 1_010, bytes: 2, vector: [0.1, 0, 0], blur: 0.28),   // sharpest → best
@@ -270,29 +270,29 @@ private func photo(_ id: String, t: Double, bytes: Int64 = 1_000, vector: [Float
         photo("later", t: 90_000, bytes: 5, vector: [0, 0, 0]),           // same scene, other day
     ])
     #expect(out.groups.count == 1)
-    let group = try! #require(out.groups.first)
+    let group = try #require(out.groups.first)
     #expect(Set(group.items.map(\.id)) == ["a", "b", "c"])
     #expect(group.bestID == "b")
     #expect(Set(group.suggestedForDeletion.map(\.id)) == ["a", "c"])
 }
 
-@Test func favoritesAreNeverSuggested() {
+@Test func favoritesAreNeverSuggested() throws {
     let out = PhotoGrouper().group([
         photo("sharp", t: 0, vector: [0, 0], blur: 0.2),
         photo("fav", t: 5, vector: [0, 0.1], blur: 0.5, favorite: true),
         photo("other", t: 9, vector: [0.1, 0], blur: 0.4),
     ])
-    let group = try! #require(out.groups.first)
+    let group = try #require(out.groups.first)
     #expect(group.bestID == "fav") // a favorite wins the keep
     #expect(!group.suggestedForDeletion.contains { $0.id == "fav" })
 }
 
-@Test func exactCopiesGroupAcrossYears() {
+@Test func exactCopiesGroupAcrossYears() throws {
     let out = PhotoGrouper().group([
         photo("orig", t: 0, bytes: 777, vector: [1, 1], w: 1080, h: 1920),
         photo("copy", t: 400_000_000, bytes: 777, vector: [1, 1], w: 1080, h: 1920),
     ])
-    let group = try! #require(out.groups.first)
+    let group = try #require(out.groups.first)
     #expect(group.kind == .duplicate)
     #expect(group.bestID == "orig") // the oldest is the original
     #expect(group.reclaimableBytes == 777)

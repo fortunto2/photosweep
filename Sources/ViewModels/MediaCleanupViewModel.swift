@@ -168,6 +168,38 @@ final class MediaCleanupViewModel {
         }
     }
 
+    /// Screenshots by calendar month, newest first: one tap selects a whole month.
+    struct MonthSection: Identifiable, Sendable {
+        let id: String
+        let title: String
+        let items: [MediaAsset]
+        var bytes: Int64 { items.reduce(0) { $0 + $1.byteSize } }
+    }
+
+    var monthSections: [MonthSection] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: assets) { asset -> DateComponents in
+            guard let date = asset.creationDate else { return DateComponents() }
+            return calendar.dateComponents([.year, .month], from: date)
+        }
+        return grouped.map { comps, items in
+            let date = calendar.date(from: comps)
+            return MonthSection(
+                id: "\(comps.year ?? 0)-\(comps.month ?? 0)",
+                title: date?.formatted(.dateTime.month(.wide).year()) ?? "Unknown date",
+                items: items
+            )
+        }
+        .sorted { ($0.items.first?.creationDate ?? .distantPast) > ($1.items.first?.creationDate ?? .distantPast) }
+    }
+
+    func isSelected(_ section: MonthSection) -> Bool { section.items.allSatisfy { selected.contains($0.id) } }
+
+    func toggle(_ section: MonthSection) {
+        let ids = section.items.map(\.id)
+        if isSelected(section) { selected.subtract(ids) } else { selected.formUnion(ids) }
+    }
+
     func toggle(_ id: String) {
         if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
     }
@@ -187,6 +219,9 @@ final class MediaCleanupViewModel {
     /// Sends selected assets to Recently Deleted (iOS shows its own confirmation).
     func deleteSelected() async { await deleteAssets(Array(selected)) }
 
+    /// Optional hook for counting deletions (set by the view; tests leave it nil).
+    var onDeleted: ((_ count: Int, _ bytes: Int64) -> Void)?
+
     /// Deletes specific assets (used by both bulk delete and single-item preview).
     /// On success we drop them from the cache locally — instant, no re-scan, and the
     /// grid never shows already-deleted items. A library-change event reconciles later.
@@ -196,7 +231,9 @@ final class MediaCleanupViewModel {
         defer { isDeleting = false }
         let deleting = Set(ids)
         do {
+            let bytes = allAssets.filter { deleting.contains($0.id) && $0.isLocal }.reduce(Int64(0)) { $0 + $1.byteSize }
             try await library.delete(assetIDs: ids)
+            onDeleted?(ids.count, bytes)
             skipNextLibraryChange = true
             allAssets.removeAll { deleting.contains($0.id) }
             selected.subtract(deleting)
