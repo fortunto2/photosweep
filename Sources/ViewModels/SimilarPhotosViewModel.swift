@@ -1,0 +1,129 @@
+import Foundation
+
+@Observable
+@MainActor
+final class SimilarPhotosViewModel {
+    private let finder: SimilarPhotoFinderProtocol
+    private let library: PhotoLibraryServiceProtocol
+    private let track: PhotoLibraryService.Track
+
+    var scope: SimilarScope = .year
+    var groups: [SimilarGroup] = []
+    var blurry: [MediaAsset] = []
+    var analyzed = 0
+    var total = 0
+    var isScanning = false
+    var hasScanned = false
+    var isDeleting = false
+    var errorMessage: String?
+    /// Per group: ids the person chose to delete. Starts as the suggestion (all but the best,
+    /// never a favorite); tapping a photo flips it.
+    var marked: [String: Set<String>] = [:]
+    /// Freed by deletions in this session (shown after Quick Clean).
+    var freedBytes: Int64 = 0
+    private var reviewed: Set<String> = []
+
+    init(finder: SimilarPhotoFinderProtocol, library: PhotoLibraryServiceProtocol,
+         track: @escaping PhotoLibraryService.Track = { _, _, _ in }) {
+        self.finder = finder
+        self.library = library
+        self.track = track
+    }
+
+    var fraction: Double { total > 0 ? Double(analyzed) / Double(total) : 0 }
+
+    /// Everything Quick Clean would delete right now.
+    var quickCleanIDs: [String] { groups.flatMap { Array(marked[$0.id] ?? []) } }
+
+    var quickCleanBytes: Int64 {
+        let ids = Set(quickCleanIDs)
+        return groups.flatMap(\.items).filter { ids.contains($0.id) }.reduce(0) { $0 + $1.byteSize }
+    }
+
+    func isMarked(_ id: String, in group: SimilarGroup) -> Bool { marked[group.id]?.contains(id) ?? false }
+
+    func toggle(_ id: String, in group: SimilarGroup) {
+        var set = marked[group.id] ?? []
+        if set.contains(id) { set.remove(id) } else { set.insert(id) }
+        // Never let a whole group go by accident: if everything is marked, keep the best.
+        if set.count == group.items.count { set.remove(group.bestID) }
+        marked[group.id] = set
+        if reviewed.insert(group.id).inserted {
+            track("group_reviewed", ["kind": group.kind.rawValue], ["items": Double(group.items.count)])
+        }
+    }
+
+    func scan() async {
+        guard !isScanning else { return }
+        isScanning = true
+        defer { isScanning = false }
+        analyzed = 0
+        total = 0
+        for await step in await finder.scan(scope: scope) {
+            analyzed = step.analyzed
+            total = step.total
+            apply(step.groups)
+            blurry = step.blurry
+            if step.isFinished { hasScanned = true }
+        }
+    }
+
+    /// Keeps the person's own marks for groups that survive a regroup.
+    private func apply(_ fresh: [SimilarGroup]) {
+        var next: [String: Set<String>] = [:]
+        for group in fresh {
+            let ids = Set(group.items.map(\.id))
+            if let mine = marked[group.id], reviewed.contains(group.id) {
+                next[group.id] = mine.intersection(ids)
+            } else {
+                next[group.id] = Set(group.suggestedForDeletion.map(\.id))
+            }
+        }
+        groups = fresh
+        marked = next
+    }
+
+    /// Keep the best of every group, delete the rest (iOS asks for confirmation).
+    func quickClean() async {
+        await delete(quickCleanIDs, source: "quick_clean")
+    }
+
+    func deleteMarked(in group: SimilarGroup) async {
+        await delete(Array(marked[group.id] ?? []), source: "group")
+    }
+
+    func deleteBlurry(_ ids: [String]) async {
+        await delete(ids, source: "blurry")
+    }
+
+    private func delete(_ ids: [String], source: String) async {
+        guard !ids.isEmpty else { return }
+        isDeleting = true
+        defer { isDeleting = false }
+        let drop = Set(ids)
+        let all = groups.flatMap(\.items) + blurry
+        let bytes = all.filter { drop.contains($0.id) }.reduce(Int64(0)) { $0 + $1.byteSize }
+        do {
+            try await library.delete(assetIDs: ids)
+            freedBytes += bytes
+            track("photos_deleted", ["source": source], ["count": Double(ids.count), "mb": Double(bytes) / 1e6])
+            blurry.removeAll { drop.contains($0.id) }
+            var kept: [SimilarGroup] = []
+            for group in groups {
+                let rest = group.items.filter { !drop.contains($0.id) }
+                guard rest.count > 1 else { continue } // one left: nothing to choose any more
+                let best = rest.contains { $0.id == group.bestID } ? group.bestID : rest[0].id
+                kept.append(SimilarGroup(kind: group.kind, items: rest, bestID: best,
+                                         favoriteIDs: group.favoriteIDs.intersection(rest.map(\.id))))
+            }
+            groups = kept
+            marked = marked.compactMapValues { $0.subtracting(drop) }
+                .filter { key, _ in kept.contains { $0.id == key } }
+            for group in kept where marked[group.id] == nil {
+                marked[group.id] = Set(group.suggestedForDeletion.map(\.id))
+            }
+        } catch {
+            errorMessage = "Couldn't delete: \(error.localizedDescription)"
+        }
+    }
+}

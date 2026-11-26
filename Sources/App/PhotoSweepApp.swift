@@ -4,9 +4,13 @@ import SuperDuperAnalytics
 @main
 struct PhotoSweepApp: App {
     // Shared, Sendable backends created once for the app lifetime.
-    private let library = PhotoLibraryService(track: { name, props, metrics in
+    private static let track: PhotoLibraryService.Track = { name, props, metrics in
         Analytics.track(name, props: props, metrics: metrics)
-    })
+    }
+    /// One size index shared by the storage scan and the duplicate finder.
+    private static let sizes = SizeIndex(url: SizeIndex.defaultURL)
+    private let library = PhotoLibraryService(index: Self.sizes, track: Self.track)
+    private let finder = SimilarPhotoFinder(sizes: Self.sizes, track: Self.track)
     private let storage = StorageService()
 
     @Environment(\.scenePhase) private var scenePhase
@@ -27,7 +31,7 @@ struct PhotoSweepApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(library: library, storage: storage)
+            RootView(library: library, storage: storage, finder: finder, track: Self.track)
         }
         // The buffer dies with the process, and a cleaner is opened, used and closed in one go.
         .onChange(of: scenePhase) { _, phase in

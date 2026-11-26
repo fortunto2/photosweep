@@ -5,6 +5,8 @@ import SwiftUI
 struct RootView: View {
     let library: PhotoLibraryServiceProtocol
     let storage: StorageServiceProtocol
+    let finder: SimilarPhotoFinderProtocol
+    let track: PhotoLibraryService.Track
 
     @State private var status: PHAuthorizationStatus = .notDetermined
 
@@ -12,7 +14,7 @@ struct RootView: View {
         Group {
             switch status {
             case .authorized, .limited:
-                MainTabView(library: library, storage: storage)
+                MainTabView(library: library, storage: storage, finder: finder, track: track)
             default:
                 PermissionView(status: status) {
                     status = await library.requestAuthorization()
@@ -29,11 +31,16 @@ struct RootView: View {
 private struct MainTabView: View {
     let library: PhotoLibraryServiceProtocol
     let storage: StorageServiceProtocol
+    let finder: SimilarPhotoFinderProtocol
+    let track: PhotoLibraryService.Track
 
     var body: some View {
         TabView {
             DashboardView(library: library, storage: storage)
                 .tabItem { Label("Storage", systemImage: "chart.pie.fill") }
+
+            SimilarPhotosView(finder: finder, library: library, track: track)
+                .tabItem { Label("Similar", systemImage: "square.on.square") }
 
             MediaListView(filter: .largeVideos, library: library)
                 .tabItem { Label("Videos", systemImage: "video.fill") }

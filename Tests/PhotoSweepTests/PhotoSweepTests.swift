@@ -168,6 +168,7 @@ private final class FakeLibrary: PhotoLibraryServiceProtocol, @unchecked Sendabl
     private var videos: [MediaAsset]
     private var screenshotList: [MediaAsset]
     private(set) var videoFetchCount = 0
+    private(set) var deleted: [String] = []
 
     init(videos: [MediaAsset] = [], screenshots: [MediaAsset] = []) {
         self.videos = videos.sorted { $0.byteSize > $1.byteSize }
@@ -195,6 +196,7 @@ private final class FakeLibrary: PhotoLibraryServiceProtocol, @unchecked Sendabl
     func refreshLocality(_ assets: [MediaAsset]) async -> [MediaAsset] { assets }
 
     func delete(assetIDs: [String]) async throws {
+        deleted += assetIDs
         let drop = Set(assetIDs)
         videos.removeAll { drop.contains($0.id) }
         screenshotList.removeAll { drop.contains($0.id) }
@@ -246,4 +248,125 @@ private final class FakeLibrary: PhotoLibraryServiceProtocol, @unchecked Sendabl
     #expect(vm.breakdown?.videoBytes == 100)
     #expect(vm.sizesAreSettled)
     #expect(vm.progressText == nil)
+}
+
+// MARK: - Duplicates: grouping, blur, Quick Clean
+
+private func photo(_ id: String, t: Double, bytes: Int64 = 1_000, vector: [Float], blur: Float = 0.3,
+                   favorite: Bool = false, w: Int = 4032, h: Int = 3024) -> PhotoFeatures {
+    PhotoFeatures(
+        asset: MediaAsset(id: id, kind: .photo, byteSize: bytes, creationDate: Date(timeIntervalSince1970: t),
+                          duration: 0, pixelWidth: w, pixelHeight: h, isLocal: true),
+        vector: vector, blur: blur, isFavorite: favorite
+    )
+}
+
+@Test func retakesGroupAndSharpestIsKept() {
+    let out = PhotoGrouper().group([
+        photo("a", t: 1_000, bytes: 1, vector: [0, 0, 0], blur: 0.45),
+        photo("b", t: 1_010, bytes: 2, vector: [0.1, 0, 0], blur: 0.28),   // sharpest → best
+        photo("c", t: 1_020, bytes: 3, vector: [0, 0.2, 0], blur: 0.35),
+        photo("far", t: 1_015, bytes: 4, vector: [5, 5, 5]),              // same minute, other scene
+        photo("later", t: 90_000, bytes: 5, vector: [0, 0, 0]),           // same scene, other day
+    ])
+    #expect(out.groups.count == 1)
+    let group = try! #require(out.groups.first)
+    #expect(Set(group.items.map(\.id)) == ["a", "b", "c"])
+    #expect(group.bestID == "b")
+    #expect(Set(group.suggestedForDeletion.map(\.id)) == ["a", "c"])
+}
+
+@Test func favoritesAreNeverSuggested() {
+    let out = PhotoGrouper().group([
+        photo("sharp", t: 0, vector: [0, 0], blur: 0.2),
+        photo("fav", t: 5, vector: [0, 0.1], blur: 0.5, favorite: true),
+        photo("other", t: 9, vector: [0.1, 0], blur: 0.4),
+    ])
+    let group = try! #require(out.groups.first)
+    #expect(group.bestID == "fav") // a favorite wins the keep
+    #expect(!group.suggestedForDeletion.contains { $0.id == "fav" })
+}
+
+@Test func exactCopiesGroupAcrossYears() {
+    let out = PhotoGrouper().group([
+        photo("orig", t: 0, bytes: 777, vector: [1, 1], w: 1080, h: 1920),
+        photo("copy", t: 400_000_000, bytes: 777, vector: [1, 1], w: 1080, h: 1920),
+    ])
+    let group = try! #require(out.groups.first)
+    #expect(group.kind == .duplicate)
+    #expect(group.bestID == "orig") // the oldest is the original
+    #expect(group.reclaimableBytes == 777)
+}
+
+@Test func blurryListSkipsGroupedAndFavorites() {
+    let out = PhotoGrouper().group([
+        photo("soft", t: 0, vector: [9, 9], blur: 0.7),
+        photo("softFav", t: 1_000, vector: [-9, 9], blur: 0.8, favorite: true),
+        photo("crisp", t: 2_000, vector: [9, -9], blur: 0.3),
+    ])
+    #expect(out.blurry.map(\.id) == ["soft"])
+}
+
+@Test func creteRoffetReadsSmearAsBlurrier() {
+    // Port of life2film va-features blur.rs test: a 64×48 checker, crisp vs smeared.
+    let w = 64, h = 48
+    let crisp: [Float] = (0..<(w * h)).map { (($0 % w) / 4 + ($0 / w) / 4) % 2 == 0 ? 0.2 : 0.8 }
+    var smeared = [Float](repeating: 0, count: w * h)
+    for y in 0..<h {
+        for x in 0..<w {
+            var acc: Float = 0
+            for k in 0..<6 { acc += crisp[y * w + min(x + k, w - 1)] }
+            smeared[y * w + x] = acc / 6
+        }
+    }
+    let a = BlurMetric.creteRoffet(crisp, width: w, height: h)
+    let b = BlurMetric.creteRoffet(smeared, width: w, height: h)
+    #expect(b > a * 1.4)
+    #expect(BlurMetric.creteRoffet([Float](repeating: 0.5, count: 16), width: 4, height: 4) == 1) // flat
+}
+
+@Test func featureStoreRoundTripsHalfPrecision() {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("f-\(UUID().uuidString).bin")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let store = FeatureStore(url: url)
+    store.set("x/L0/001", .init(mod: 42, blur: 0.33, vector: [0.5, -1.25, 3]))
+    store.saveIfNeeded()
+    let again = FeatureStore(url: url)
+    again.loadIfNeeded()
+    #expect(again.record("x/L0/001", mod: 42)?.vector == [0.5, -1.25, 3])
+    #expect(again.record("x/L0/001", mod: 43) == nil) // edited since → miss
+}
+
+private final class FakeFinder: SimilarPhotoFinderProtocol, @unchecked Sendable {
+    let groups: [SimilarGroup]
+    init(_ groups: [SimilarGroup]) { self.groups = groups }
+    func scan(scope: SimilarScope) async -> AsyncStream<SimilarScanProgress> {
+        let done = SimilarScanProgress(analyzed: 3, total: 3, groups: groups, blurry: [], isFinished: true, seconds: 0)
+        return AsyncStream { $0.yield(done); $0.finish() }
+    }
+}
+
+@MainActor
+@Test func quickCleanDeletesAllButBestAndKeepsUserChoice() async {
+    let out = PhotoGrouper().group([
+        photo("a", t: 0, bytes: 100, vector: [0, 0], blur: 0.4),
+        photo("b", t: 5, bytes: 200, vector: [0, 0.1], blur: 0.2),
+        photo("c", t: 9, bytes: 300, vector: [0.1, 0], blur: 0.5),
+    ])
+    let fake = FakeLibrary()
+    let vm = SimilarPhotosViewModel(finder: FakeFinder(out.groups), library: fake)
+    await vm.scan()
+    #expect(Set(vm.quickCleanIDs) == ["a", "c"])
+    #expect(vm.quickCleanBytes == 400)
+
+    let group = vm.groups[0]
+    vm.toggle("c", in: group)               // person keeps "c" too
+    #expect(vm.quickCleanIDs == ["a"])
+    vm.toggle("b", in: group)               // marks the best…
+    vm.toggle("c", in: group)               // …and everything else: best is pulled back
+    #expect(!vm.isMarked("b", in: vm.groups[0]) || !vm.isMarked("a", in: vm.groups[0]))
+
+    await vm.quickClean()
+    #expect(fake.deleted.isEmpty == false)
+    #expect(vm.freedBytes > 0)
 }
