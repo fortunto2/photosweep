@@ -12,6 +12,8 @@ struct IndexEntry: Sendable, Equatable {
     var duration: Double
     var width: Int
     var height: Int
+    /// `PhotoFormat.rawValue` for photos; "" for videos and for entries from a v1 index.
+    var format: String = ""
 
     func asset(id: String) -> MediaAsset {
         MediaAsset(
@@ -34,7 +36,8 @@ struct IndexEntry: Sendable, Equatable {
 /// corrupt or old-format file is simply discarded (it is a cache). Thread-safe via a lock
 /// because the scanner fills it from several GCD workers at once.
 final class SizeIndex: @unchecked Sendable {
-    private static let header = "photosweep-size-index v1"
+    private static let header = "photosweep-size-index v2"
+    private static let headerV1 = "photosweep-size-index v1" // no format column; still read
     private let url: URL?
     private let lock = NSLock()
     private var entries: [String: IndexEntry] = [:]
@@ -79,6 +82,24 @@ final class SizeIndex: @unchecked Sendable {
         }
     }
 
+    func assets(format: PhotoFormat) -> [MediaAsset] {
+        lock.withLock {
+            entries.compactMap { $0.value.format == format.rawValue ? $0.value.asset(id: $0.key) : nil }
+        }
+    }
+
+    /// Photos (not screenshots, not videos) by format, from what the index holds.
+    func formatMix() -> FormatMix {
+        lock.withLock {
+            var mix = FormatMix()
+            for e in entries.values where e.kind == .photo {
+                guard let f = PhotoFormat(rawValue: e.format) else { continue }
+                mix.add(f, bytes: e.bytes)
+            }
+            return mix
+        }
+    }
+
     func assets(of kind: MediaKind) -> [MediaAsset] {
         lock.withLock { entries.compactMap { $0.value.kind == kind ? $0.value.asset(id: $0.key) : nil } }
     }
@@ -97,20 +118,22 @@ final class SizeIndex: @unchecked Sendable {
     func load() {
         guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else { return }
         var lines = text.split(separator: "\n", omittingEmptySubsequences: true)[...]
-        guard lines.first.map(String.init) == Self.header else { return }
+        guard let first = lines.first.map(String.init), first == Self.header || first == Self.headerV1
+        else { return }
         lines = lines.dropFirst()
         var loaded: [String: IndexEntry] = [:]
         loaded.reserveCapacity(lines.count)
         for line in lines {
             let f = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard f.count == 9,
+            guard f.count == 9 || f.count == 10,
                   let mod = Double(f[1]), let bytes = Int64(f[2]),
                   let kind = MediaKind(rawValue: String(f[4])),
                   let created = Double(f[5]), let duration = Double(f[6]),
                   let w = Int(f[7]), let h = Int(f[8]) else { continue }
             loaded[String(f[0])] = IndexEntry(
                 mod: mod, bytes: bytes, isLocal: f[3] == "1", kind: kind,
-                created: created, duration: duration, width: w, height: h
+                created: created, duration: duration, width: w, height: h,
+                format: f.count == 10 ? String(f[9]) : ""
             )
         }
         lock.withLock {
@@ -131,7 +154,7 @@ final class SizeIndex: @unchecked Sendable {
         out.reserveCapacity(snapshot.count * 96)
         for (id, e) in snapshot {
             out += "\(id)\t\(e.mod)\t\(e.bytes)\t\(e.isLocal ? 1 : 0)\t\(e.kind.rawValue)\t"
-            out += "\(e.created)\t\(e.duration)\t\(e.width)\t\(e.height)\n"
+            out += "\(e.created)\t\(e.duration)\t\(e.width)\t\(e.height)\t\(e.format)\n"
         }
         try? out.write(to: url, atomically: true, encoding: .utf8)
     }

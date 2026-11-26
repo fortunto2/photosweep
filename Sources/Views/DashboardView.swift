@@ -4,8 +4,10 @@ import SwiftUI
 struct DashboardView: View {
     @State private var vm: DashboardViewModel
     @State private var countsEnabled = Analytics.isEnabled
+    private let library: PhotoLibraryServiceProtocol
 
     init(library: PhotoLibraryServiceProtocol, storage: StorageServiceProtocol) {
+        self.library = library
         _vm = State(initialValue: DashboardViewModel(storage: storage, library: library))
     }
 
@@ -17,6 +19,12 @@ struct DashboardView: View {
                         StorageBar(info: info)
                             .padding(.vertical, 4)
                     }
+                }
+
+                if let recent = vm.recent, let heavy = recent.heavySetting {
+                    cameraBanner(recent, heavy)
+                } else if let recent = vm.recent, recent.liveIsHeavy {
+                    liveBanner(recent)
                 }
 
                 if let breakdown = vm.breakdown {
@@ -34,6 +42,7 @@ struct DashboardView: View {
                             }
                         }
                     }
+                    if let formats = vm.formats, formats.total > 0 { formatSection(formats) }
                     Section {
                         Text("Only the photo library can be cleaned by an app. Other apps and System Data: see Apps.")
                             .font(.footnote)
@@ -61,6 +70,76 @@ struct DashboardView: View {
             .refreshable { await vm.load(force: true) }
             // Each visit asks the shared scan; a recent finished one is replayed, not re-run.
             .task { await vm.load() }
+        }
+    }
+
+    /// The camera is set to a heavy format right now: say what it costs and where to switch.
+    private func cameraBanner(_ recent: FormatMix, _ heavy: PhotoFormat) -> some View {
+        let n = recent.buckets[heavy]?.count ?? 0
+        let avg = Format.bytes(recent.averageBytes(heavy))
+        let path = heavy == .raw
+            ? "Settings → Camera → Formats → Apple ProRAW: off"
+            : "Settings → Camera → Formats → Resolution Control: 12 or 24 MP"
+        return Section {
+            VStack(alignment: .leading, spacing: 6) {
+                Label(heavy == .raw ? "Your camera shoots RAW" : "Your camera shoots 48 MP",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.headline).foregroundStyle(.orange)
+                Text("\(n) of your last \(recent.total) photos, ~\(avg) each. HEIF is ~3 MB.")
+                    .font(.subheadline)
+                Text(path).font(.footnote.monospaced()).foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+            if heavy == .raw {
+                NavigationLink {
+                    MediaListView(filter: .raw, library: library)
+                } label: {
+                    Label("Review RAW photos", systemImage: "camera.aperture")
+                }
+            }
+        }
+    }
+
+    private func liveBanner(_ recent: FormatMix) -> some View {
+        let all = recent.buckets.values.reduce(Int64(0)) { $0 + $1.bytes }
+        let perLive = Format.bytes(recent.live.bytes / Int64(max(1, recent.live.count)))
+        let share = all > 0 ? Int(Double(recent.live.bytes) / Double(all) * 100) : 0
+        return Section {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Live Photos add \(perLive) per shot", systemImage: "livephoto")
+                    .font(.headline).foregroundStyle(.orange)
+                Text("\(recent.live.count) of your last \(recent.total) photos are Live: \(share)% of their size is the video.")
+                    .font(.subheadline)
+                Text("Camera: tap ◎ to turn Live off. Keep it off: Settings → Camera → Preserve Settings → Live Photo.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func formatSection(_ mix: FormatMix) -> some View {
+        Section {
+            ForEach(PhotoFormat.allCases.filter { (mix.buckets[$0]?.count ?? 0) > 0 }, id: \.self) { f in
+                let b = mix.buckets[f] ?? FormatMix.Bucket()
+                let line = HStack {
+                    Text(f.title)
+                    Spacer()
+                    VStack(alignment: .trailing) {
+                        Text(Format.bytes(b.bytes)).font(.body.weight(.semibold))
+                        Text("\(b.count.formatted()) · ~\(Format.bytes(mix.averageBytes(f))) each")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if f == .raw {
+                    NavigationLink { MediaListView(filter: .raw, library: library) } label: { line }
+                } else {
+                    line
+                }
+            }
+        } header: {
+            Text("Photo formats")
+        } footer: {
+            if !vm.sizesAreSettled || vm.progressText != nil { Text("Still reading formats…") }
         }
     }
 

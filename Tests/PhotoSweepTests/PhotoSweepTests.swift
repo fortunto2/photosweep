@@ -492,3 +492,41 @@ func counterParses(_ name: String, _ expected: Int) {
     var close = hers; close.counter = 1260 // another phone whose counter happens to be near
     #expect(PhotoGrouper.needsCameraCheck([mine, mine2, close]))
 }
+
+@Test(arguments: [
+    ("com.adobe.raw-image", 8064, 6048, PhotoFormat.raw),
+    ("public.heic", 8064, 6048, .max48),
+    ("public.heic", 4032, 3024, .heif),
+    ("public.jpeg", 4032, 3024, .jpeg),
+    ("public.png", 1290, 2796, .other),
+])
+func photoFormatClassifies(_ uti: String, _ w: Int, _ h: Int, _ expected: PhotoFormat) {
+    #expect(PhotoFormat.classify(uti: uti, width: w, height: h) == expected)
+}
+
+@Test func heavySettingNeedsAFifthOfRecentShots() {
+    var mix = FormatMix()
+    for _ in 0..<10 { mix.add(.heif, bytes: 3_000_000) }
+    mix.add(.raw, bytes: 75_000_000)                 // one test shot: no nag
+    #expect(mix.heavySetting == nil)
+    for _ in 0..<4 { mix.add(.raw, bytes: 75_000_000) }
+    #expect(mix.heavySetting == .raw)
+    #expect(mix.averageBytes(.raw) == 75_000_000)
+}
+
+@Test func sizeIndexReadsV1AndKeepsFormat() throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("idx-\(UUID()).tsv")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try "photosweep-size-index v1\nold\t1.0\t5\t1\tphoto\t0.0\t0.0\t4032\t3024\n"
+        .write(to: url, atomically: true, encoding: .utf8)
+    let index = SizeIndex(url: url)
+    index.load()
+    #expect(index.entry("old")?.format == "")         // v1 row: format unknown → re-read once
+    index.set([("new", IndexEntry(mod: 2, bytes: 75, isLocal: true, kind: .photo, created: 0, duration: 0,
+                                  width: 8064, height: 6048, format: "raw"))])
+    index.saveIfNeeded()
+    let again = SizeIndex(url: url)
+    again.load()
+    #expect(again.entry("new")?.format == "raw")
+    #expect(again.formatMix().buckets[.raw]?.count == 1)
+}

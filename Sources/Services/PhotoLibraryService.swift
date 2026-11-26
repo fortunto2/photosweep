@@ -140,6 +140,44 @@ actor PhotoLibraryService: PhotoLibraryServiceProtocol {
         index.assets(of: .screenshot).sorted { ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast) }
     }
 
+    func photos(format: PhotoFormat) -> [MediaAsset] {
+        index.assets(format: format).sorted { $0.byteSize > $1.byteSize }
+    }
+
+    func libraryFormats() -> FormatMix { index.formatMix() }
+
+    /// Reads the newest `limit` camera photos directly (~2 ms each), so the answer does not
+    /// wait for the background scan to reach them.
+    func recentFormats(limit: Int) -> FormatMix {
+        let options = PHFetchOptions()
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        options.predicate = NSPredicate(format: "mediaType == %d AND NOT ((mediaSubtypes & %d) != 0)",
+                                        PHAssetMediaType.image.rawValue,
+                                        PHAssetMediaSubtype.photoScreenshot.rawValue)
+        options.fetchLimit = limit
+        var mix = FormatMix()
+        PHAsset.fetchAssets(with: options).enumerateObjects { asset, _, _ in
+            let mod = asset.modificationDate?.timeIntervalSince1970 ?? 0
+            let e = LibraryScanner.measure(asset, id: asset.localIdentifier, mod: mod, isScreenshot: false)
+            if let f = PhotoFormat(rawValue: e.format) { mix.add(f, bytes: e.bytes) }
+            var liveBytes: Int64 = 0, editBytes: Int64 = 0
+            for r in PHAssetResource.assetResources(for: asset) {
+                let size = (r.value(forKey: "fileSize") as? Int64) ?? Int64((r.value(forKey: "fileSize") as? Int) ?? 0)
+                switch r.type {
+                case .pairedVideo, .fullSizePairedVideo, .adjustmentBasePairedVideo: liveBytes += size
+                case .fullSizePhoto: editBytes += size
+                default: break
+                }
+            }
+            if liveBytes > 0 { mix.live.count += 1; mix.live.bytes += liveBytes }
+            if editBytes > 0 { mix.edited.count += 1; mix.edited.bytes += editBytes }
+        }
+        print("[formats] recent total=\(mix.total) live=\(mix.live.count)/\(mix.live.bytes / 1_000_000)MB "
+              + "edited=\(mix.edited.count)/\(mix.edited.bytes / 1_000_000)MB "
+              + "all=\(mix.buckets.values.reduce(0) { $0 + $1.bytes } / 1_000_000)MB"); fflush(stdout)
+        return mix
+    }
+
     /// Re-reads on-device state for a short list (the index may predate an iCloud
     /// offload or download). ~2 ms per asset, so only for what is on screen.
     func refreshLocality(_ assets: [MediaAsset]) -> [MediaAsset] {
@@ -164,11 +202,15 @@ actor PhotoLibraryService: PhotoLibraryServiceProtocol {
     // MARK: - Delete
 
     func delete(assetIDs: [String]) async throws {
+        let started = Date()
+        print("[delete] on-actor n=\(assetIDs.count)"); fflush(stdout)
+        defer { print("[delete] done s=\(Date().timeIntervalSince(started))"); fflush(stdout) }
         let fetch = PHAsset.fetchAssets(withLocalIdentifiers: assetIDs, options: nil)
         var assets: [PHAsset] = []
         fetch.enumerateObjects { asset, _, _ in assets.append(asset) }
         guard !assets.isEmpty else { return }
 
+        print("[delete] fetched s=\(Date().timeIntervalSince(started))"); fflush(stdout)
         try await PHPhotoLibrary.shared().performChanges {
             PHAssetChangeRequest.deleteAssets(assets as NSArray)
         }

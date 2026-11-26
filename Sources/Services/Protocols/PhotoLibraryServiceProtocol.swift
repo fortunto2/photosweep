@@ -18,10 +18,25 @@ protocol PhotoLibraryServiceProtocol: Sendable {
     /// Screenshots measured so far, newest first.
     func screenshots() async -> [MediaAsset]
 
+    /// Photos of one format measured so far (e.g. every RAW), largest first.
+    func photos(format: PhotoFormat) async -> [MediaAsset]
+
+    /// Formats of the newest camera photos (screenshots excluded): what the camera is set to now.
+    func recentFormats(limit: Int) async -> FormatMix
+
+    /// Formats across the photos measured so far.
+    func libraryFormats() async -> FormatMix
+
     /// Fresh on-device/iCloud state for a short list; drops assets that no longer exist.
     func refreshLocality(_ assets: [MediaAsset]) async -> [MediaAsset]
 
     /// Move the given assets to Recently Deleted. iOS shows its own confirmation
     /// alert; throws `PHPhotosError.userCancelled`-style errors if the user declines.
     func delete(assetIDs: [String]) async throws
+}
+
+extension PhotoLibraryServiceProtocol {
+    func photos(format: PhotoFormat) async -> [MediaAsset] { [] }
+    func recentFormats(limit: Int) async -> FormatMix { FormatMix() }
+    func libraryFormats() async -> FormatMix { FormatMix() }
 }

@@ -10,7 +10,11 @@ struct MediaListView: View {
     init(filter: MediaFilter, library: PhotoLibraryServiceProtocol,
          track: @escaping PhotoLibraryService.Track = { _, _, _ in }) {
         let vm = MediaCleanupViewModel(filter: filter, library: library)
-        let source = filter == .largeVideos ? "videos" : "screenshots"
+        let source = switch filter {
+        case .largeVideos: "videos"
+        case .screenshots: "screenshots"
+        case .raw: "raw"
+        }
         vm.onDeleted = { count, bytes in
             track("photos_deleted", ["source": source], ["count": Double(count), "mb": Double(bytes) / 1e6])
         }
@@ -188,6 +192,15 @@ struct MediaListView: View {
     @ViewBuilder
     private var deleteBar: some View {
         if !vm.selected.isEmpty {
+            VStack(spacing: 6) {
+            if let started = vm.deleteStarted {
+                TimelineView(.periodic(from: started, by: 1)) { context in
+                    let waited = Int(context.date.timeIntervalSince(started))
+                    Text(waited < 20 ? "Waiting for iOS to confirm… \(waited) s"
+                                     : "No dialog after \(waited) s: iOS Photos is stuck. Restart the iPhone.")
+                        .font(.caption).foregroundStyle(waited < 20 ? Color.secondary : Color.orange)
+                }
+            }
             HStack(spacing: 10) {
                 Button {
                     share(Array(vm.selected))
@@ -212,6 +225,7 @@ struct MediaListView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
                 .disabled(vm.isDeleting)
+            }
             }
             .padding()
             .background(.ultraThinMaterial)

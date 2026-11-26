@@ -11,11 +11,17 @@ final class DashboardViewModel {
     /// Latest scan step; drives the "Measuring sizes… 34%" line.
     var progress: LibraryScanProgress?
     var isLoading = false
+    /// Formats of the newest camera photos: is the camera set to something heavy right now?
+    var recent: FormatMix?
+    /// Formats across the measured library.
+    var formats: FormatMix?
 
     init(storage: StorageServiceProtocol, library: PhotoLibraryServiceProtocol) {
         self.storage = storage
         self.library = library
     }
+
+    static let recentLimit = 60
 
     /// Bytes are final (or from the last scan) — vs. still growing on a first scan.
     var sizesAreSettled: Bool {
@@ -39,9 +45,13 @@ final class DashboardViewModel {
         isLoading = true
         defer { isLoading = false }
         storageInfo = try? storage.currentStorage()
+        recent = await library.recentFormats(limit: Self.recentLimit)
         for await step in await library.scanUpdates(force: force) {
             progress = step
             breakdown = step.breakdown
+            if step.isFinished || formats == nil || step.scanned % 16_384 < 4_096 {
+                formats = await library.libraryFormats()
+            }
             LaunchClock.mark("first_content")
             if step.hasCachedSizes { LaunchClock.mark("sizes_from_cache") }
             if step.isFinished { LaunchClock.mark("sizes_done") }

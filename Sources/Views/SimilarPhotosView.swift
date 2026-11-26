@@ -15,6 +15,7 @@ struct SimilarPhotosView: View {
     var body: some View {
         NavigationStack {
             List {
+                if let started = vm.deleteStarted { deleteStatus(started) }
                 controls
                 if !vm.groups.isEmpty { quickClean }
                 ForEach(vm.groups) { group in groupSection(group) }
@@ -69,7 +70,7 @@ struct SimilarPhotosView: View {
                 Task { await vm.quickClean() }
             } label: {
                 HStack {
-                    if vm.isDeleting { ProgressView().tint(.white) }
+                    if vm.deletingSource == "quick_clean" { ProgressView().tint(.white) }
                     VStack(spacing: 2) {
                         Text("Keep best · delete \(vm.quickCleanIDs.count)").fontWeight(.semibold)
                         Text("frees \(Format.bytes(vm.quickCleanLocalBytes)) on iPhone · \(Format.bytes(vm.quickCleanBytes - vm.quickCleanLocalBytes)) in iCloud")
@@ -143,7 +144,9 @@ struct SimilarPhotosView: View {
                     Button("Kept · Undo") { vm.undoKeep(group) }.font(.caption.weight(.semibold))
                 } else {
                     Button("Keep all") { vm.keepAll(group) }.font(.caption.weight(.semibold))
-                    if marked > 0 {
+                    if vm.deletingSource == group.id {
+                        ProgressView().controlSize(.mini)
+                    } else if marked > 0 {
                         Button("Delete \(marked)", role: .destructive) { Task { await vm.deleteMarked(in: group) } }
                             .font(.caption.weight(.semibold))
                             .disabled(vm.isDeleting)
@@ -183,6 +186,25 @@ struct SimilarPhotosView: View {
             }
         } footer: {
             Text("Nothing preselected.")
+        }
+    }
+
+    /// iOS asks for confirmation itself; until it does, say so instead of a silent spinner.
+    private func deleteStatus(_ started: Date) -> some View {
+        Section {
+            TimelineView(.periodic(from: started, by: 1)) { context in
+                let waited = Int(context.date.timeIntervalSince(started))
+                HStack(spacing: 10) {
+                    ProgressView()
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Waiting for iOS to confirm… \(waited) s").font(.subheadline)
+                        if waited >= 20 {
+                            Text("No dialog? iOS Photos is stuck. Restart the iPhone and try again.")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                    }
+                }
+            }
         }
     }
 

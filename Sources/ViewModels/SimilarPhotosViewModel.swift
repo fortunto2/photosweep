@@ -21,6 +21,10 @@ final class SimilarPhotosViewModel {
     var stage: SimilarScanProgress.Stage = .comparing
     var hasScanned = false
     var isDeleting = false
+    /// Which button started the running delete ("quick_clean", a group id, "blurry"), and when:
+    /// only that button spins, and a slow iOS confirmation gets a visible explanation.
+    var deletingSource: String?
+    var deleteStarted: Date?
     var errorMessage: String?
     /// Per group: ids the person chose to delete. Starts as the suggestion (all but the best,
     /// never a favorite); tapping a photo flips it.
@@ -168,15 +172,19 @@ final class SimilarPhotosViewModel {
     }
 
     func deleteMarked(in group: SimilarGroup) async {
-        await delete(Array(marked[group.id] ?? []), source: "group")
+        await delete(Array(marked[group.id] ?? []), source: "group", key: group.id)
     }
 
     func deleteBlurry(_ ids: [String]) async {
         await delete(ids, source: "blurry")
     }
 
-    private func delete(_ ids: [String], source: String) async {
-        guard !ids.isEmpty else { return }
+    private func delete(_ ids: [String], source: String, key: String? = nil) async {
+        guard !ids.isEmpty, !isDeleting else { return }
+        deletingSource = key ?? source
+        deleteStarted = Date()
+        defer { deletingSource = nil; deleteStarted = nil }
+        print("[delete] tap n=\(ids.count) t=\(Date().timeIntervalSince1970)"); fflush(stdout)
         isDeleting = true
         defer { isDeleting = false }
         let drop = Set(ids)

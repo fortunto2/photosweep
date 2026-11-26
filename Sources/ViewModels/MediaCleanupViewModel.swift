@@ -4,11 +4,13 @@ import Foundation
 enum MediaFilter: Sendable {
     case largeVideos
     case screenshots
+    case raw
 
     var title: String {
         switch self {
         case .largeVideos: "Large Videos"
         case .screenshots: "Screenshots"
+        case .raw: "RAW Photos"
         }
     }
 
@@ -16,6 +18,7 @@ enum MediaFilter: Sendable {
         switch self {
         case .largeVideos: "video.fill"
         case .screenshots: "camera.viewfinder"
+        case .raw: "camera.aperture"
         }
     }
 
@@ -23,6 +26,7 @@ enum MediaFilter: Sendable {
         switch self {
         case .largeVideos: "No videos found in your library."
         case .screenshots: "No screenshots found."
+        case .raw: "No RAW photos found yet."
         }
     }
 }
@@ -74,6 +78,7 @@ final class MediaCleanupViewModel {
     var selected: Set<String> = []
     var isLoading = false
     var isDeleting = false
+    var deleteStarted: Date?
     var errorMessage: String?
 
     /// Cached across view re-appearances so returning to a tab doesn't re-scan.
@@ -165,6 +170,7 @@ final class MediaCleanupViewModel {
         switch filter {
         case .largeVideos: await library.largestVideos(limit: videoLimit)
         case .screenshots: await library.screenshots()
+        case .raw: await library.photos(format: .raw)
         }
     }
 
@@ -228,7 +234,8 @@ final class MediaCleanupViewModel {
     func deleteAssets(_ ids: [String]) async {
         guard !ids.isEmpty else { return }
         isDeleting = true
-        defer { isDeleting = false }
+        deleteStarted = Date()
+        defer { isDeleting = false; deleteStarted = nil }
         let deleting = Set(ids)
         do {
             let bytes = allAssets.filter { deleting.contains($0.id) && $0.isLocal }.reduce(Int64(0)) { $0 + $1.byteSize }

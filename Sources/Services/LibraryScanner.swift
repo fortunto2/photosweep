@@ -111,7 +111,8 @@ enum LibraryScanner {
             for asset in assets {
                 let id = asset.localIdentifier
                 let mod = asset.modificationDate?.timeIntervalSince1970 ?? 0
-                if let hit = index.entry(id), hit.mod == mod {
+                // A photo indexed before formats were recorded is read once more (v1 → v2).
+                if let hit = index.entry(id), hit.mod == mod, hit.kind == .video || !hit.format.isEmpty {
                     local.append((id, hit))
                     continue
                 }
@@ -135,7 +136,12 @@ enum LibraryScanner {
     static func measure(_ asset: PHAsset, id: String, mod: Double, isScreenshot: Bool) -> IndexEntry {
         var bytes: Int64 = 0
         var isLocal = true
+        var uti = ""
         for resource in PHAssetResource.assetResources(for: asset) {
+            if resource.type == .photo || (uti.isEmpty && resource.type == .fullSizePhoto) {
+                uti = resource.uniformTypeIdentifier
+            }
+            if resource.uniformTypeIdentifier.contains("raw-image") { uti = resource.uniformTypeIdentifier }
             if let size = resource.value(forKey: "fileSize") as? Int64 {
                 bytes += size
             } else if let size = resource.value(forKey: "fileSize") as? Int {
@@ -147,7 +153,9 @@ enum LibraryScanner {
         return IndexEntry(
             mod: mod, bytes: bytes, isLocal: isLocal, kind: kind,
             created: asset.creationDate?.timeIntervalSince1970 ?? 0,
-            duration: asset.duration, width: asset.pixelWidth, height: asset.pixelHeight
+            duration: asset.duration, width: asset.pixelWidth, height: asset.pixelHeight,
+            format: kind == .video ? "" : PhotoFormat.classify(uti: uti, width: asset.pixelWidth,
+                                                              height: asset.pixelHeight).rawValue
         )
     }
 }
