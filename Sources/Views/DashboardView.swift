@@ -147,8 +147,9 @@ struct DashboardView: View {
         } header: {
             Text("iPhone vs iCloud")
         } footer: {
-            Text("iOS can move the originals on iPhone to iCloud: Settings → Photos → Optimize iPhone Storage. "
-                 + "Upload progress is shown only in Photos → Library, at the bottom.")
+            Text("If Photos says everything is synced, the originals on iPhone are also in iCloud. "
+                 + "With Settings → Photos → Optimize iPhone Storage, iOS keeps them while space is free "
+                 + "and swaps them for small copies by itself when it runs low. Deleting them here deletes them from iCloud too.")
         }
     }
 
