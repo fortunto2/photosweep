@@ -28,9 +28,10 @@ settings:
 
 packages:
   SuperDuperAnalytics:
-    # Локальный путь: пакет лежит в этом же дереве, и собираться должна та версия,
-    # которую сейчас правят. Появится публичный репозиторий — станет url.
-    path: ../../shared/superduperai-analytics
+    # Public repo, pinned: a relative path into ~/startups/shared exists on one Mac only
+    # and breaks worktrees and Xcode Cloud. 1.1.0 adds `automated:` (the `auto` flag).
+    url: https://github.com/fortunto2/superduperai-analytics-swift
+    from: "1.1.0"
 
 targets:
   PhotoSweep:

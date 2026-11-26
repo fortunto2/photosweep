@@ -19,7 +19,10 @@ struct RootView: View {
                 }
             }
         }
-        .task { status = library.authorizationStatus() }
+        .task {
+            status = library.authorizationStatus()
+            LaunchClock.mark("auth_status_\(status.rawValue)")
+        }
     }
 }
 

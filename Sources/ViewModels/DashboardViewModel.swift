@@ -20,5 +20,6 @@ final class DashboardViewModel {
         defer { isLoading = false }
         storageInfo = try? storage.currentStorage()
         breakdown = await library.libraryBreakdown()
+        LaunchClock.mark("first_content")
     }
 }

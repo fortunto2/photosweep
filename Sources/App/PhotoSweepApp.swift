@@ -12,6 +12,7 @@ struct PhotoSweepApp: App {
     /// App Store Connect counts the download; nothing there counts the second launch.
     /// UI test runs are excluded — a screenshot pass launches the app dozens of times.
     init() {
+        LaunchClock.mark("app_init")
         guard !ProcessInfo.processInfo.arguments.contains("-uiTesting") else { return }
         Analytics.configure(source: "photosweep")
         Analytics.track("app_launched")
