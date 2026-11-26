@@ -10,11 +10,7 @@ struct MediaListView: View {
     init(filter: MediaFilter, library: PhotoLibraryServiceProtocol,
          track: @escaping PhotoLibraryService.Track = { _, _, _ in }) {
         let vm = MediaCleanupViewModel(filter: filter, library: library)
-        let source = switch filter {
-        case .largeVideos: "videos"
-        case .screenshots: "screenshots"
-        case .raw: "raw"
-        }
+        let source = filter.analyticsSource
         vm.onDeleted = { count, bytes in
             track("photos_deleted", ["source": source], ["count": Double(count), "mb": Double(bytes) / 1e6])
         }
@@ -104,7 +100,7 @@ struct MediaListView: View {
                     }
                     .padding(.horizontal, 12).padding(.top, 8)
                 }
-                if vm.filter == .largeVideos {
+                if vm.filter.showsAvailability {
                     Picker("Show", selection: $vm.availability) {
                         Text("All").tag(AvailabilityFilter.all)
                         Text("📱 On device (\(vm.localCount))").tag(AvailabilityFilter.local)

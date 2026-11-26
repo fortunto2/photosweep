@@ -144,6 +144,10 @@ actor PhotoLibraryService: PhotoLibraryServiceProtocol {
         index.assets(format: format).sorted { $0.byteSize > $1.byteSize }
     }
 
+    func largestPhotos(limit: Int) -> [MediaAsset] {
+        Array(index.assets(of: .photo).sorted { $0.byteSize > $1.byteSize }.prefix(limit))
+    }
+
     func libraryFormats() -> FormatMix { index.formatMix() }
 
     /// Reads the newest `limit` camera photos directly (~2 ms each), so the answer does not
@@ -201,19 +205,26 @@ actor PhotoLibraryService: PhotoLibraryServiceProtocol {
 
     // MARK: - Delete
 
+    /// AI-NOTE: issued from the main actor. On iOS 27.2 a delete sent from this actor reached
+    /// assetsd, which built its "Allow … to delete?" alert that then never appeared (26.11.2026).
+    @MainActor
+    private static func deleteOnMain(_ ids: [String]) async throws -> Bool {
+        let fetch = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
+        var assets: [PHAsset] = []
+        fetch.enumerateObjects { asset, _, _ in assets.append(asset) }
+        guard !assets.isEmpty else { return false }
+        print("[delete] main n=\(assets.count)"); fflush(stdout)
+        try await PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest.deleteAssets(assets as NSArray)
+        }
+        return true
+    }
+
     func delete(assetIDs: [String]) async throws {
         let started = Date()
         print("[delete] on-actor n=\(assetIDs.count)"); fflush(stdout)
         defer { print("[delete] done s=\(Date().timeIntervalSince(started))"); fflush(stdout) }
-        let fetch = PHAsset.fetchAssets(withLocalIdentifiers: assetIDs, options: nil)
-        var assets: [PHAsset] = []
-        fetch.enumerateObjects { asset, _, _ in assets.append(asset) }
-        guard !assets.isEmpty else { return }
-
-        print("[delete] fetched s=\(Date().timeIntervalSince(started))"); fflush(stdout)
-        try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.deleteAssets(assets as NSArray)
-        }
+        guard try await Self.deleteOnMain(assetIDs) else { return }
         index.remove(assetIDs)
         lastFinished = nil // totals changed; next dashboard visit re-walks (warm, fast)
         Task.detached(priority: .utility) { [index] in index.saveIfNeeded() }

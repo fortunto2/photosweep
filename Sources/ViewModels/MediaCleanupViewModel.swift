@@ -1,16 +1,30 @@
 import Foundation
 
 /// Which cleanable bucket a `MediaListView` is showing.
-enum MediaFilter: Sendable {
+enum MediaFilter: Sendable, Equatable {
     case largeVideos
     case screenshots
-    case raw
+    case photos
+    case format(PhotoFormat)
+
+    /// Lists where "on this iPhone vs only in iCloud" decides what deleting frees.
+    var showsAvailability: Bool { self != .screenshots }
+
+    var analyticsSource: String {
+        switch self {
+        case .largeVideos: "videos"
+        case .screenshots: "screenshots"
+        case .photos: "photos"
+        case let .format(f): "format_\(f.rawValue)"
+        }
+    }
 
     var title: String {
         switch self {
         case .largeVideos: "Large Videos"
         case .screenshots: "Screenshots"
-        case .raw: "RAW Photos"
+        case .photos: "Photos"
+        case let .format(f): "\(f.title) Photos"
         }
     }
 
@@ -18,7 +32,8 @@ enum MediaFilter: Sendable {
         switch self {
         case .largeVideos: "video.fill"
         case .screenshots: "camera.viewfinder"
-        case .raw: "camera.aperture"
+        case .photos: "photo.fill"
+        case .format: "camera.aperture"
         }
     }
 
@@ -26,7 +41,8 @@ enum MediaFilter: Sendable {
         switch self {
         case .largeVideos: "No videos found in your library."
         case .screenshots: "No screenshots found."
-        case .raw: "No RAW photos found yet."
+        case .photos: "No photos measured yet."
+        case let .format(f): "No \(f.title) photos found yet."
         }
     }
 }
@@ -170,7 +186,8 @@ final class MediaCleanupViewModel {
         switch filter {
         case .largeVideos: await library.largestVideos(limit: videoLimit)
         case .screenshots: await library.screenshots()
-        case .raw: await library.photos(format: .raw)
+        case .photos: await library.largestPhotos(limit: videoLimit)
+        case let .format(f): await library.photos(format: f)
         }
     }
 

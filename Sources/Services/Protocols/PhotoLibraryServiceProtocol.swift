@@ -18,6 +18,9 @@ protocol PhotoLibraryServiceProtocol: Sendable {
     /// Screenshots measured so far, newest first.
     func screenshots() async -> [MediaAsset]
 
+    /// Camera photos (not screenshots) measured so far, largest first.
+    func largestPhotos(limit: Int) async -> [MediaAsset]
+
     /// Photos of one format measured so far (e.g. every RAW), largest first.
     func photos(format: PhotoFormat) async -> [MediaAsset]
 
@@ -37,6 +40,7 @@ protocol PhotoLibraryServiceProtocol: Sendable {
 
 extension PhotoLibraryServiceProtocol {
     func photos(format: PhotoFormat) async -> [MediaAsset] { [] }
+    func largestPhotos(limit: Int) async -> [MediaAsset] { [] }
     func recentFormats(limit: Int) async -> FormatMix { FormatMix() }
     func libraryFormats() async -> FormatMix { FormatMix() }
 }

@@ -29,9 +29,17 @@ struct DashboardView: View {
 
                 if let breakdown = vm.breakdown {
                     Section {
-                        row("Videos", bytes: breakdown.videoBytes, count: breakdown.videoCount, symbol: "video.fill")
-                        row("Screenshots", bytes: breakdown.screenshotBytes, count: breakdown.screenshotCount, symbol: "camera.viewfinder")
-                        row("Other photos", bytes: breakdown.otherPhotoBytes, count: breakdown.otherPhotoCount, symbol: "photo.fill")
+                        link(.largeVideos) {
+                            row("Videos", bytes: breakdown.videoBytes, count: breakdown.videoCount, symbol: "video.fill")
+                        }
+                        link(.screenshots) {
+                            row("Screenshots", bytes: breakdown.screenshotBytes, count: breakdown.screenshotCount,
+                                symbol: "camera.viewfinder")
+                        }
+                        link(.photos) {
+                            row("Other photos", bytes: breakdown.otherPhotoBytes, count: breakdown.otherPhotoCount,
+                                symbol: "photo.fill")
+                        }
                     } header: {
                         Text("Your photo library")
                     } footer: {
@@ -92,7 +100,7 @@ struct DashboardView: View {
             .padding(.vertical, 4)
             if heavy == .raw {
                 NavigationLink {
-                    MediaListView(filter: .raw, library: library)
+                    MediaListView(filter: .format(.raw), library: library)
                 } label: {
                     Label("Review RAW photos", systemImage: "camera.aperture")
                 }
@@ -130,17 +138,18 @@ struct DashboardView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                if f == .raw {
-                    NavigationLink { MediaListView(filter: .raw, library: library) } label: { line }
-                } else {
-                    line
-                }
+                link(.format(f)) { line }
             }
         } header: {
             Text("Photo formats")
         } footer: {
             if !vm.sizesAreSettled || vm.progressText != nil { Text("Still reading formats…") }
         }
+    }
+
+    /// Every number on this screen opens the list behind it, biggest first.
+    private func link(_ filter: MediaFilter, @ViewBuilder label: () -> some View) -> some View {
+        NavigationLink { MediaListView(filter: filter, library: library) } label: { label() }
     }
 
     private func row(_ title: String, bytes: Int64, count: Int, symbol: String) -> some View {
