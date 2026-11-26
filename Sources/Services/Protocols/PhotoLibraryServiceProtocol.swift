@@ -30,6 +30,9 @@ protocol PhotoLibraryServiceProtocol: Sendable {
     /// Formats across the photos measured so far.
     func libraryFormats() async -> FormatMix
 
+    /// Originals on this iPhone vs only in iCloud, across everything measured.
+    func storageSplit() async -> StorageSplit
+
     /// Fresh on-device/iCloud state for a short list; drops assets that no longer exist.
     func refreshLocality(_ assets: [MediaAsset]) async -> [MediaAsset]
 
@@ -43,4 +46,5 @@ extension PhotoLibraryServiceProtocol {
     func largestPhotos(limit: Int) async -> [MediaAsset] { [] }
     func recentFormats(limit: Int) async -> FormatMix { FormatMix() }
     func libraryFormats() async -> FormatMix { FormatMix() }
+    func storageSplit() async -> StorageSplit { StorageSplit() }
 }

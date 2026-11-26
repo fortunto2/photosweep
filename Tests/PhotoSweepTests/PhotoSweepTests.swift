@@ -554,3 +554,14 @@ func photoFormatClassifies(_ uti: String, _ w: Int, _ h: Int, _ expected: PhotoF
     #expect(vm.quickCleanIDs == ["here"])
     #expect(vm.count(.cloud) == 1)
 }
+
+@Test func storageSplitSeparatesPhoneAndCloud() {
+    let index = SizeIndex(url: nil)
+    index.set([
+        ("a", IndexEntry(mod: 1, bytes: 10, isLocal: true, kind: .photo, created: 0, duration: 0, width: 1, height: 1)),
+        ("b", IndexEntry(mod: 1, bytes: 30, isLocal: false, kind: .video, created: 0, duration: 0, width: 1, height: 1)),
+    ])
+    let split = index.storageSplit()
+    #expect(split.onPhone.count == 1 && split.onPhone.bytes == 10)
+    #expect(split.cloudOnly.count == 1 && split.cloudOnly.bytes == 30)
+}

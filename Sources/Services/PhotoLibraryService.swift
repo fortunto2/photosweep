@@ -150,6 +150,8 @@ actor PhotoLibraryService: PhotoLibraryServiceProtocol {
 
     func libraryFormats() -> FormatMix { index.formatMix() }
 
+    func storageSplit() -> StorageSplit { index.storageSplit() }
+
     /// Reads the newest `limit` camera photos directly (~2 ms each), so the answer does not
     /// wait for the background scan to reach them.
     func recentFormats(limit: Int) -> FormatMix {

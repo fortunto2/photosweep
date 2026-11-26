@@ -50,6 +50,7 @@ struct DashboardView: View {
                             }
                         }
                     }
+                    if let split = vm.split, split.onPhone.count + split.cloudOnly.count > 0 { iCloudSection(split) }
                     if let formats = vm.formats, formats.total > 0 { formatSection(formats) }
                     Section {
                         Text("Only the photo library can be cleaned by an app. Other apps and System Data: see Apps.")
@@ -122,6 +123,32 @@ struct DashboardView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             .padding(.vertical, 4)
+        }
+    }
+
+    private func iCloudSection(_ split: StorageSplit) -> some View {
+        Section {
+            HStack {
+                Label("Originals on iPhone", systemImage: "iphone")
+                Spacer()
+                VStack(alignment: .trailing) {
+                    Text(Format.bytes(split.onPhone.bytes)).font(.body.weight(.semibold))
+                    Text("\(split.onPhone.count.formatted()) items").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            HStack {
+                Label("Only in iCloud", systemImage: "icloud")
+                Spacer()
+                VStack(alignment: .trailing) {
+                    Text(Format.bytes(split.cloudOnly.bytes)).font(.body.weight(.semibold))
+                    Text("\(split.cloudOnly.count.formatted()) items · uploaded").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("iPhone vs iCloud")
+        } footer: {
+            Text("iOS can move the originals on iPhone to iCloud: Settings → Photos → Optimize iPhone Storage. "
+                 + "Upload progress is shown only in Photos → Library, at the bottom.")
         }
     }
 

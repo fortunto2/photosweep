@@ -15,6 +15,7 @@ final class DashboardViewModel {
     var recent: FormatMix?
     /// Formats across the measured library.
     var formats: FormatMix?
+    var split: StorageSplit?
 
     init(storage: StorageServiceProtocol, library: PhotoLibraryServiceProtocol) {
         self.storage = storage
@@ -51,6 +52,7 @@ final class DashboardViewModel {
             breakdown = step.breakdown
             if step.isFinished || formats == nil || step.scanned % 16_384 < 4_096 {
                 formats = await library.libraryFormats()
+                split = await library.storageSplit()
             }
             LaunchClock.mark("first_content")
             if step.hasCachedSizes { LaunchClock.mark("sizes_from_cache") }

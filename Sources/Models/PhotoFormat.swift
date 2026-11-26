@@ -73,3 +73,11 @@ struct FormatMix: Sendable, Equatable {
         return nil
     }
 }
+
+/// Where the library's originals live. PhotoKit does not say which items are still waiting
+/// to upload, but an item that is only in iCloud has certainly been uploaded; one whose
+/// original is on the phone can still be offloaded by iOS ("Optimize iPhone Storage").
+struct StorageSplit: Sendable, Equatable {
+    var onPhone = FormatMix.Bucket()
+    var cloudOnly = FormatMix.Bucket()
+}

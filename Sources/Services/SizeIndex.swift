@@ -100,6 +100,20 @@ final class SizeIndex: @unchecked Sendable {
         }
     }
 
+    func storageSplit() -> StorageSplit {
+        lock.withLock {
+            var split = StorageSplit()
+            for e in entries.values {
+                if e.isLocal {
+                    split.onPhone.count += 1; split.onPhone.bytes += e.bytes
+                } else {
+                    split.cloudOnly.count += 1; split.cloudOnly.bytes += e.bytes
+                }
+            }
+            return split
+        }
+    }
+
     func assets(of kind: MediaKind) -> [MediaAsset] {
         lock.withLock { entries.compactMap { $0.value.kind == kind ? $0.value.asset(id: $0.key) : nil } }
     }
