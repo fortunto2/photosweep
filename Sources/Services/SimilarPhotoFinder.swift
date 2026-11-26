@@ -103,13 +103,67 @@ final class SimilarPhotoFinder: SimilarPhotoFinderProtocol, Sendable {
         store.saveIfNeeded()
         guard !Task.isCancelled else { return }
 
-        // Pass 2: Vision quality only for photos that need a "best" decided.
-        let plain = features
-        let first = grouper.group(plain)
-        let similarGroups: [SimilarGroup] = first.groups.filter { $0.kind == SimilarGroup.Kind.similar }
-        let memberIDs: [String] = similarGroups.flatMap { $0.items.map { $0.id } }
-        let quality = await qualityScores(Array(memberIDs.prefix(qualityCap)))
-        let final = quality.isEmpty ? first : grouper.group(plain, quality: quality)
+        // Pass 3 (before choosing the best, since it changes the groups): which phone took
+        // each grouped photo. Cached; iCloud heads only on Wi-Fi.
+        let byID = Dictionary(candidates.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var plain = features.map { f -> PhotoFeatures in
+            var f = f
+            if let c = byID[f.asset.id] { f.camera = store.record(c.id, mod: c.mod)?.camera }
+            return f
+        }
+        var current = grouper.group(plain)
+        let knownCamera = Set(plain.filter { $0.camera != nil }.map(\.asset.id))
+        let unknown = Array(Set(current.groups.flatMap { $0.items.map(\.id) }).subtracting(knownCamera))
+        if !unknown.isEmpty {
+            let network = await CameraReader.onUnmeteredNetwork()
+            var found: [String: String] = [:]
+            var done = 0
+            continuation.yield(SimilarScanProgress(
+                stage: .checkingCameras(done: 0, of: unknown.count), analyzed: total, total: total,
+                groups: current.groups, blurry: current.blurry, isFinished: false, seconds: Date().timeIntervalSince(started)
+            ))
+            await withTaskGroup(of: (String, String?).self) { group in
+                var next = 0
+                func add() {
+                    guard next < unknown.count, let c = byID[unknown[next]] else { next += 1; return }
+                    next += 1
+                    group.addTask { (c.id, await CameraReader.model(of: c.asset, network: network)) }
+                }
+                for _ in 0..<6 { add() }
+                while let (id, model) = await group.next() {
+                    done += 1
+                    if let model, let c = byID[id] {
+                        found[id] = model
+                        store.update(c.id) { $0.camera = model }
+                    }
+                    if done % 200 == 0 || done == unknown.count {
+                        plain = plain.map { f in
+                            guard let m = found[f.asset.id] else { return f }
+                            var f = f
+                            f.camera = m
+                            return f
+                        }
+                        found.removeAll()
+                        current = grouper.group(plain)
+                        store.saveIfNeeded()
+                        continuation.yield(SimilarScanProgress(
+                            stage: .checkingCameras(done: done, of: unknown.count), analyzed: total, total: total,
+                            groups: current.groups, blurry: current.blurry, isFinished: false,
+                            seconds: Date().timeIntervalSince(started)
+                        ))
+                    }
+                    if !Task.isCancelled { add() }
+                }
+            }
+            store.saveIfNeeded()
+        }
+        guard !Task.isCancelled else { return }
+
+        // Pass 2: Vision quality only for photos that need a "best" decided (cached).
+        let memberIDs: [String] = current.groups.filter { $0.kind == SimilarGroup.Kind.similar }
+            .flatMap { $0.items.map { $0.id } }
+        let quality = await qualityScores(memberIDs, byID: byID)
+        let final = quality.isEmpty ? current : grouper.group(plain, quality: quality)
 
         let seconds = Date().timeIntervalSince(started)
         let reclaimable: Int64 = final.groups.reduce(0) { $0 + $1.reclaimableBytes }
@@ -219,14 +273,18 @@ final class SimilarPhotoFinder: SimilarPhotoFinderProtocol, Sendable {
     }
 
     /// Aesthetics (iOS 18+) and best face capture quality, for choosing the keeper.
-    private func qualityScores(_ ids: [String]) async -> [String: Float] {
-        guard !ids.isEmpty else { return [:] }
-        let fetch = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
-        var assets: [Candidate] = []
-        fetch.enumerateObjects { a, _, _ in assets.append(Candidate(asset: a, id: a.localIdentifier, mod: 0)) }
+    /// Cached per photo; at most `qualityCap` fresh reads per scan.
+    private func qualityScores(_ ids: [String], byID: [String: Candidate]) async -> [String: Float] {
         var scores: [String: Float] = [:]
-        for chunk in stride(from: 0, to: assets.count, by: width).map({ Array(assets[$0..<min($0 + width, assets.count)]) }) {
+        var missing: [Candidate] = []
+        for id in ids {
+            guard let c = byID[id] else { continue }
+            if let q = store.record(c.id, mod: c.mod)?.quality { scores[id] = q } else { missing.append(c) }
+        }
+        missing = Array(missing.prefix(qualityCap))
+        for start in stride(from: 0, to: missing.count, by: width) {
             if Task.isCancelled { break }
+            let chunk = missing[start..<min(start + width, missing.count)]
             await withTaskGroup(of: (String, Float)?.self) { group in
                 for c in chunk {
                     group.addTask { [self] in
@@ -234,9 +292,13 @@ final class SimilarPhotoFinder: SimilarPhotoFinderProtocol, Sendable {
                         return (c.id, Self.quality(image))
                     }
                 }
-                for await case let (id, score)? in group { scores[id] = score }
+                for await case let (id, score)? in group {
+                    scores[id] = score
+                    store.update(id) { $0.quality = score }
+                }
             }
         }
+        store.saveIfNeeded()
         return scores
     }
 

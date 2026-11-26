@@ -48,9 +48,7 @@ struct SimilarPhotosView: View {
 
             if vm.isScanning {
                 ProgressView(value: vm.fraction) {
-                    Text(vm.total == 0 ? "Finding photos…"
-                         : "Comparing \(vm.analyzed.formatted()) of \(vm.total.formatted()) photos")
-                        .font(.caption)
+                    Text(vm.progressText).font(.caption)
                 }
             }
         } footer: {
@@ -65,8 +63,11 @@ struct SimilarPhotosView: View {
             } label: {
                 HStack {
                     if vm.isDeleting { ProgressView().tint(.white) }
-                    Text("Keep best · delete \(vm.quickCleanIDs.count) · \(Format.bytes(vm.quickCleanBytes))")
-                        .fontWeight(.semibold)
+                    VStack(spacing: 2) {
+                        Text("Keep best · delete \(vm.quickCleanIDs.count)").fontWeight(.semibold)
+                        Text("frees \(Format.bytes(vm.quickCleanLocalBytes)) on iPhone · \(Format.bytes(vm.quickCleanBytes - vm.quickCleanLocalBytes)) in iCloud")
+                            .font(.caption)
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
@@ -79,6 +80,7 @@ struct SimilarPhotosView: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(vm.groups.count) groups. ★ marks the photo kept; tap any photo to change what goes. iOS asks before anything is deleted.")
+                Text("Using an iCloud Shared Library? Shots from two different phones are never grouped together (read from each photo’s camera). Deleting a shared photo removes it for everyone in the library.")
                 if vm.freedBytes > 0 {
                     Text("Freed so far: \(Format.bytes(vm.freedBytes)). Empty Recently Deleted in Photos to reclaim it.")
                         .foregroundStyle(.green)

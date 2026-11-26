@@ -13,6 +13,7 @@ final class SimilarPhotosViewModel {
     var analyzed = 0
     var total = 0
     var isScanning = false
+    var stage: SimilarScanProgress.Stage = .comparing
     var hasScanned = false
     var isDeleting = false
     var errorMessage: String?
@@ -30,14 +31,30 @@ final class SimilarPhotosViewModel {
         self.track = track
     }
 
-    var fraction: Double { total > 0 ? Double(analyzed) / Double(total) : 0 }
+    var fraction: Double {
+        if case let .checkingCameras(done, of) = stage, of > 0 { return Double(done) / Double(of) }
+        return total > 0 ? Double(analyzed) / Double(total) : 0
+    }
+
+    var progressText: String {
+        switch stage {
+        case let .checkingCameras(done, of): "Checking which phone took each photo… \(done.formatted()) of \(of.formatted())"
+        case .choosingBest: "Choosing the best shot of each group…"
+        case .comparing: total == 0 ? "Finding photos…" : "Comparing \(analyzed.formatted()) of \(total.formatted()) photos"
+        }
+    }
 
     /// Everything Quick Clean would delete right now.
     var quickCleanIDs: [String] { groups.flatMap { Array(marked[$0.id] ?? []) } }
 
-    var quickCleanBytes: Int64 {
+    var quickCleanBytes: Int64 { quickCleanAssets.reduce(0) { $0 + $1.byteSize } }
+
+    /// What deleting frees on this iPhone; iCloud-only originals free iCloud, not the phone.
+    var quickCleanLocalBytes: Int64 { quickCleanAssets.filter(\.isLocal).reduce(0) { $0 + $1.byteSize } }
+
+    private var quickCleanAssets: [MediaAsset] {
         let ids = Set(quickCleanIDs)
-        return groups.flatMap(\.items).filter { ids.contains($0.id) }.reduce(0) { $0 + $1.byteSize }
+        return groups.flatMap(\.items).filter { ids.contains($0.id) }
     }
 
     func isMarked(_ id: String, in group: SimilarGroup) -> Bool { marked[group.id]?.contains(id) ?? false }
@@ -62,6 +79,7 @@ final class SimilarPhotosViewModel {
         for await step in await finder.scan(scope: scope) {
             analyzed = step.analyzed
             total = step.total
+            stage = step.stage
             apply(step.groups)
             blurry = step.blurry
             if step.isFinished { hasScanned = true }

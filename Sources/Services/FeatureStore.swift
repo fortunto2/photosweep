@@ -11,9 +11,13 @@ final class FeatureStore: @unchecked Sendable {
         var mod: Double
         var blur: Float
         var vector: [Float]
+        /// Vision keeper score (`SimilarPhotoFinder.quality`); nil until a group needed it.
+        var quality: Float?
+        /// EXIF camera model; "" = the file names none; nil = not read yet.
+        var camera: String?
     }
 
-    private static let magic: UInt32 = 0x5053_4631 // "PSF1"
+    private static let magic: UInt32 = 0x5053_4632 // "PSF2"
     private let url: URL?
     private let lock = NSLock()
     private var records: [String: Record] = [:]
@@ -40,6 +44,16 @@ final class FeatureStore: @unchecked Sendable {
         }
     }
 
+    /// Updates fields of an existing record (quality / camera found later).
+    func update(_ id: String, _ change: (inout Record) -> Void) {
+        lock.withLock {
+            guard var r = records[id] else { return }
+            change(&r)
+            records[id] = r
+            dirty = true
+        }
+    }
+
     func loadIfNeeded() {
         let shouldLoad: Bool = lock.withLock {
             defer { loaded = true }
@@ -53,8 +67,14 @@ final class FeatureStore: @unchecked Sendable {
         for _ in 0..<n {
             guard let idLen = reader.read(UInt16.self), let id = reader.string(Int(idLen)),
                   let mod = reader.read(Double.self), let blur = reader.read(Float.self),
-                  let dims = reader.read(UInt16.self), let vec = reader.halfs(Int(dims)) else { break }
-            out[id] = Record(mod: mod, blur: blur, vector: vec)
+                  let dims = reader.read(UInt16.self), let vec = reader.halfs(Int(dims)),
+                  let quality = reader.read(Float.self), let camLen = reader.read(Int16.self) else { break }
+            var camera: String?
+            if camLen >= 0 {
+                guard let name = reader.string(Int(camLen)) else { break }
+                camera = name
+            }
+            out[id] = Record(mod: mod, blur: blur, vector: vec, quality: quality.isNaN ? nil : quality, camera: camera)
         }
         lock.withLock { records.merge(out) { current, _ in current } }
     }
@@ -80,6 +100,14 @@ final class FeatureStore: @unchecked Sendable {
             put(r.blur)
             put(UInt16(r.vector.count))
             for v in r.vector { put(Float16(v)) }
+            put(r.quality ?? .nan)
+            if let camera = r.camera {
+                let bytes = Array(camera.utf8.prefix(200))
+                put(Int16(bytes.count))
+                data.append(contentsOf: bytes)
+            } else {
+                put(Int16(-1))
+            }
         }
         try? data.write(to: url, options: .atomic)
     }

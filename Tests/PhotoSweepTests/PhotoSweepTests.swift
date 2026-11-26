@@ -370,3 +370,41 @@ private final class FakeFinder: SimilarPhotoFinderProtocol, @unchecked Sendable 
     #expect(fake.deleted.isEmpty == false)
     #expect(vm.freedBytes > 0)
 }
+
+@Test func driftingSessionSplitsInsteadOfChaining() {
+    // Each shot is 0.3 from the previous (< 0.45) but the last is 1.5 from the first.
+    let shots = (0..<6).map { photo("s\($0)", t: Double($0 * 10), bytes: Int64($0 + 1), vector: [Float($0) * 0.3, 0]) }
+    let out = PhotoGrouper().group(shots)
+    #expect(out.groups.count >= 2)
+    #expect(out.groups.allSatisfy { $0.items.count <= 2 })
+}
+
+@Test func twoPhonesAtOneMomentAreNotDuplicates() {
+    // Shared Library: the same scene from two phones within seconds.
+    var mine = photo("mine", t: 0, bytes: 1, vector: [0, 0])
+    mine.camera = "iPhone 14 Pro Max"
+    var hers = photo("hers", t: 3, bytes: 2, vector: [0.05, 0])
+    hers.camera = "iPhone 15"
+    var mine2 = photo("mine2", t: 6, bytes: 3, vector: [0, 0.05])
+    mine2.camera = "iPhone 14 Pro Max"
+    let unknown = photo("unread", t: 8, bytes: 4, vector: [0.02, 0.02]) // camera not read: compatible
+    let out = PhotoGrouper().group([mine, hers, mine2, unknown])
+    #expect(out.groups.allSatisfy { g in !(g.items.contains { $0.id == "hers" } && g.items.contains { $0.id == "mine" }) })
+    #expect(out.groups.contains { Set($0.items.map(\.id)).isSuperset(of: ["mine", "mine2"]) })
+}
+
+@Test func featureStoreKeepsCameraAndQuality() {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("f-\(UUID().uuidString).bin")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let store = FeatureStore(url: url)
+    store.set("a", .init(mod: 1, blur: 0.3, vector: [1], quality: nil, camera: nil))
+    store.set("b", .init(mod: 1, blur: 0.3, vector: [1], quality: 0.7, camera: "iPhone 15"))
+    store.update("a") { $0.camera = "" }
+    store.saveIfNeeded()
+    let again = FeatureStore(url: url)
+    again.loadIfNeeded()
+    #expect(again.record("a", mod: 1)?.camera == "")
+    #expect(again.record("a", mod: 1)?.quality == nil)
+    #expect(again.record("b", mod: 1)?.camera == "iPhone 15")
+    #expect(again.record("b", mod: 1)?.quality == 0.7)
+}

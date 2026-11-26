@@ -9,6 +9,9 @@ struct PhotoFeatures: Sendable, Equatable {
     /// Crete-Roffet blur, 0 = sharp … 1 = flat (`BlurMetric`, from life2film va-features).
     let blur: Float
     let isFavorite: Bool
+    /// EXIF camera model when known. Two phones are two people: in an iCloud Shared
+    /// Library this is the only way to keep one person's shots apart from the other's.
+    var camera: String?
 }
 
 /// A set of photos where keeping one is enough.
@@ -54,6 +57,8 @@ enum SimilarScope: String, CaseIterable, Sendable {
 }
 
 struct SimilarScanProgress: Sendable, Equatable {
+    enum Stage: Sendable, Equatable { case comparing, choosingBest, checkingCameras(done: Int, of: Int) }
+    var stage: Stage = .comparing
     var analyzed: Int
     var total: Int
     var groups: [SimilarGroup]

@@ -74,19 +74,44 @@ struct PhotoGrouper: Sendable {
                     let dt = abs((photos[i].asset.creationDate?.timeIntervalSince1970 ?? 0)
                         - (photos[j].asset.creationDate?.timeIntervalSince1970 ?? 0))
                     guard dt <= windowSeconds else { continue }
+                    guard sameCamera(photos[i], photos[j]) else { continue }
                     if distance(photos[i].vector, photos[j].vector) < similarityThreshold { uf.union(i, j) }
                 }
             }
         }
         var components: [Int: [Int]] = [:]
         for i in photos.indices { components[uf.find(i), default: []].append(i) }
-        return components.values.compactMap { indices in
+        return components.values.flatMap { anchored($0, photos) }.compactMap { indices in
             guard indices.count > 1 else { return nil }
             let items = indices.map { photos[$0] }
                 .sorted { ($0.asset.creationDate ?? .distantPast) < ($1.asset.creationDate ?? .distantPast) }
             let best = items.first(where: \.isFavorite) ?? items.max { score($0, quality) < score($1, quality) }!
             return makeGroup(.similar, items, bestID: best.asset.id)
         }
+    }
+
+    /// Splits a union-find component so every member is close to its group's first shot.
+    ///
+    /// AI-NOTE: union-find alone chains — A~B, B~C, … a 40-shot session drifts one step at a
+    /// time and lands in one group ("delete 39"), measured on a real 8.6k-photo year. Anchoring
+    /// keeps a group to one pose/framing; the session becomes several small groups.
+    private func anchored(_ component: [Int], _ photos: [PhotoFeatures]) -> [[Int]] {
+        guard component.count > 2 else { return [component] }
+        let ordered = component.sorted {
+            (photos[$0].asset.creationDate ?? .distantPast) < (photos[$1].asset.creationDate ?? .distantPast)
+        }
+        var groups: [[Int]] = []
+        for i in ordered {
+            if let g = groups.indices.last(where: {
+                let anchor = photos[groups[$0][0]]
+                return sameCamera(anchor, photos[i]) && distance(anchor.vector, photos[i].vector) < similarityThreshold
+            }) {
+                groups[g].append(i)
+            } else {
+                groups.append([i])
+            }
+        }
+        return groups
     }
 
     /// Higher = better keeper. Sharpness dominates (1 − blur); Vision quality (aesthetics,
@@ -102,6 +127,13 @@ struct PhotoGrouper: Sendable {
             kind: kind, items: items.map(\.asset), bestID: bestID,
             favoriteIDs: Set(items.filter(\.isFavorite).map(\.asset.id))
         )
+    }
+
+    /// Unknown or unnamed cameras are compatible with anything; two named, different
+    /// cameras never share a group (two phones at one moment are not duplicates).
+    func sameCamera(_ a: PhotoFeatures, _ b: PhotoFeatures) -> Bool {
+        guard let ca = a.camera, let cb = b.camera, !ca.isEmpty, !cb.isEmpty else { return true }
+        return ca == cb
     }
 
     func distance(_ a: [Float], _ b: [Float]) -> Float {
