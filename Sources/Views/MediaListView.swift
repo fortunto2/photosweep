@@ -95,7 +95,7 @@ struct MediaListView: View {
             ScrollView {
                 if let fraction = vm.scanFraction {
                     ProgressView(value: fraction) {
-                        Text("Still measuring the library… biggest found so far")
+                        Text("Measuring… biggest so far")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 12).padding(.top, 8)
@@ -109,7 +109,7 @@ struct MediaListView: View {
                     .pickerStyle(.segmented)
                     .padding(.horizontal, 8).padding(.top, 8)
 
-                    Label("📱 frees space on this device · ☁️ original is in iCloud (deleting frees iCloud, ~nothing here).", systemImage: "info.circle")
+                    Label("📱 frees this iPhone · ☁️ frees iCloud", systemImage: "info.circle")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 12).padding(.top, 4)

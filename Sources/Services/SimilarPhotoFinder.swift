@@ -102,18 +102,23 @@ final class SimilarPhotoFinder: SimilarPhotoFinderProtocol, Sendable {
         }
         store.saveIfNeeded()
         guard !Task.isCancelled else { return }
+        let pass1 = Date().timeIntervalSince(started)
+        var cameraReads = 0
 
         // Pass 3 (before choosing the best, since it changes the groups): which phone took
         // each grouped photo. Cached; iCloud heads only on Wi-Fi.
         let byID = Dictionary(candidates.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        var plain = features.map { f -> PhotoFeatures in
-            var f = f
-            if let c = byID[f.asset.id] { f.camera = store.record(c.id, mod: c.mod)?.camera }
-            return f
-        }
+        var plain = features
         var current = grouper.group(plain)
-        let knownCamera = Set(plain.filter { $0.camera != nil }.map(\.asset.id))
-        let unknown = Array(Set(current.groups.flatMap { $0.items.map(\.id) }).subtracting(knownCamera))
+        // Counters already keep two phones apart unless they happen to be close; only groups
+        // whose counters fall into more than one run need EXIF.
+        let featureByID = Dictionary(plain.map { ($0.asset.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let suspect = current.groups.filter { g in
+            PhotoGrouper.needsCameraCheck(g.items.compactMap { featureByID[$0.id] })
+        }
+        let unknown = suspect.flatMap { $0.items.map(\.id) }.filter { featureByID[$0]?.camera == nil }
+        cameraReads = unknown.count
+        let pass3Start = Date()
         if !unknown.isEmpty {
             let network = await CameraReader.onUnmeteredNetwork()
             var found: [String: String] = [:]
@@ -159,6 +164,8 @@ final class SimilarPhotoFinder: SimilarPhotoFinderProtocol, Sendable {
         }
         guard !Task.isCancelled else { return }
 
+        let pass3 = Date().timeIntervalSince(pass3Start)
+        let pass2Start = Date()
         // Pass 2: Vision quality only for photos that need a "best" decided (cached).
         let memberIDs: [String] = current.groups.filter { $0.kind == SimilarGroup.Kind.similar }
             .flatMap { $0.items.map { $0.id } }
@@ -174,6 +181,10 @@ final class SimilarPhotoFinder: SimilarPhotoFinderProtocol, Sendable {
         metrics["groups"] = Double(final.groups.count)
         metrics["blurry"] = Double(final.blurry.count)
         metrics["reclaimable_mb"] = Double(reclaimable) / 1e6
+        metrics["camera_reads"] = Double(cameraReads)
+        metrics["s_compare"] = (pass1 * 10).rounded() / 10
+        metrics["s_cameras"] = (pass3 * 10).rounded() / 10
+        metrics["s_quality"] = (Date().timeIntervalSince(pass2Start) * 10).rounded() / 10
         track("similar_scan_finished", ["scope": scope.rawValue], metrics)
         print("[similar] scope=\(scope.rawValue) \(metrics.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))")
         fflush(stdout)
@@ -208,19 +219,34 @@ final class SimilarPhotoFinder: SimilarPhotoFinderProtocol, Sendable {
     private func analyze(_ c: Candidate) async -> Analyzed? {
         let entry = sizes.entry(c.id) ?? LibraryScanner.measure(c.asset, id: c.id, mod: c.mod, isScreenshot: false)
         let asset = entry.asset(id: c.id)
-        if let cached = store.record(c.id, mod: c.mod) {
+        if var cached = store.record(c.id, mod: c.mod) {
+            if cached.counter == -2 {
+                cached.counter = Self.counter(of: c.asset)
+                let value = cached.counter
+                store.update(c.id) { $0.counter = value }
+            }
             return Analyzed(features: PhotoFeatures(asset: asset, vector: cached.vector, blur: cached.blur,
-                                                    isFavorite: c.asset.isFavorite), isFreshlyAnalyzed: false)
+                                                    isFavorite: c.asset.isFavorite, camera: cached.camera,
+                                                    counter: cached.counter >= 0 ? cached.counter : nil),
+                            isFreshlyAnalyzed: false)
         }
         guard let image = await thumbnail(c.asset) else { return nil }
         guard let vector = Self.featurePrint(image) else { return nil }
         let blur = Self.blur(image)
-        store.set(c.id, FeatureStore.Record(mod: c.mod, blur: blur, vector: vector))
-        return Analyzed(features: PhotoFeatures(asset: asset, vector: vector, blur: blur, isFavorite: c.asset.isFavorite),
+        let counter = Self.counter(of: c.asset)
+        store.set(c.id, FeatureStore.Record(mod: c.mod, blur: blur, vector: vector, counter: counter))
+        return Analyzed(features: PhotoFeatures(asset: asset, vector: vector, blur: blur, isFavorite: c.asset.isFavorite,
+                                                counter: counter >= 0 ? counter : nil),
                         isFreshlyAnalyzed: true)
     }
 
     // MARK: - PhotoKit
+
+    /// Shot counter from the original file name: a local database read, no file access.
+    private static func counter(of asset: PHAsset) -> Int {
+        let name = PHAssetResource.assetResources(for: asset).first?.originalFilename ?? ""
+        return PhotoGrouper.counter(of: name) ?? -1
+    }
 
     /// Local-only, fast-format 320 px image: never starts an iCloud download.
     private func thumbnail(_ asset: PHAsset) async -> CGImage? {

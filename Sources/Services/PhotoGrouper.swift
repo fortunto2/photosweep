@@ -123,17 +123,65 @@ struct PhotoGrouper: Sendable {
     }
 
     private func makeGroup(_ kind: SimilarGroup.Kind, _ items: [PhotoFeatures], bestID: String) -> SimilarGroup {
-        SimilarGroup(
+        var group = SimilarGroup(
             kind: kind, items: items.map(\.asset), bestID: bestID,
             favoriteIDs: Set(items.filter(\.isFavorite).map(\.asset.id))
         )
+        group.confidence = confidence(items, bestID: bestID, kind: kind)
+        return group
     }
 
-    /// Unknown or unnamed cameras are compatible with anything; two named, different
-    /// cameras never share a group (two phones at one moment are not duplicates).
+    /// 1 for an exact copy; otherwise closeness to the kept photo (distance 0 → 1,
+    /// threshold → 0), +0.2 when it is visibly softer than the kept one, −0.2 when sharper.
+    func confidence(_ items: [PhotoFeatures], bestID: String, kind: SimilarGroup.Kind) -> [String: Float] {
+        guard let best = items.first(where: { $0.asset.id == bestID }) else { return [:] }
+        var out: [String: Float] = [:]
+        for p in items where p.asset.id != bestID {
+            guard kind == .similar else { out[p.asset.id] = 1; continue }
+            var c = 1 - min(1, distance(p.vector, best.vector) / similarityThreshold)
+            if p.blur > best.blur + 0.03 { c += 0.2 } else if p.blur + 0.03 < best.blur { c -= 0.2 }
+            out[p.asset.id] = max(0, min(1, c))
+        }
+        return out
+    }
+
+    /// Two phones at one moment are not duplicates. Different phones show as shot counters
+    /// far apart (two phones of the same model included) or as two named, different cameras.
+    /// Anything unknown is compatible.
     func sameCamera(_ a: PhotoFeatures, _ b: PhotoFeatures) -> Bool {
+        if let na = a.counter, let nb = b.counter, Self.counterDistance(na, nb) > Self.counterSpan { return false }
         guard let ca = a.camera, let cb = b.camera, !ca.isEmpty, !cb.isEmpty else { return true }
         return ca == cb
+    }
+
+    /// Shots one phone can take within a few minutes (bursts included), on the counter.
+    static let counterSpan = 200
+
+    /// Distance on the round counter: 9998 and 0002 are four apart.
+    static func counterDistance(_ a: Int, _ b: Int) -> Int {
+        let d = abs(a - b) % 10_000
+        return min(d, 10_000 - d)
+    }
+
+    /// `IMG_1234.HEIC`, `IMG_E1234.JPG` → 1234; anything else names no counter
+    /// (ported from life2film `CameraFilter.counter`).
+    static func counter(of filename: String) -> Int? {
+        let upper = filename.uppercased()
+        guard upper.hasPrefix("IMG_") else { return nil }
+        var rest = upper.dropFirst(4)
+        if rest.first == "E" { rest = rest.dropFirst() }
+        let digits = rest.prefix(4)
+        guard digits.count == 4, digits.allSatisfy({ $0.isASCII && $0.isNumber }),
+              rest.dropFirst(4).first.map({ !$0.isNumber }) ?? true else { return nil }
+        return Int(digits)
+    }
+
+    /// Whether a group's counters fall into more than one run (gap > 20): only then can it
+    /// hold two phones whose counters happen to be close, and only then is EXIF worth reading.
+    static func needsCameraCheck(_ items: [PhotoFeatures]) -> Bool {
+        let counters = items.compactMap(\.counter).sorted()
+        guard counters.count > 1 else { return false }
+        return zip(counters, counters.dropFirst()).contains { $1 - $0 > 20 }
     }
 
     func distance(_ a: [Float], _ b: [Float]) -> Float {

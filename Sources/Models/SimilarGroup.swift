@@ -12,6 +12,9 @@ struct PhotoFeatures: Sendable, Equatable {
     /// EXIF camera model when known. Two phones are two people: in an iCloud Shared
     /// Library this is the only way to keep one person's shots apart from the other's.
     var camera: String?
+    /// Shot counter from the file name (`IMG_1234` → 1234); nil when the name has none.
+    /// One phone numbers its shots in sequence, so far-apart counters mean two phones.
+    var counter: Int?
 }
 
 /// A set of photos where keeping one is enough.
@@ -29,6 +32,9 @@ struct SimilarGroup: Identifiable, Sendable, Equatable {
     var bestID: String
     /// Favorites are never suggested for deletion.
     let favoriteIDs: Set<String>
+    /// How sure we are each non-kept photo is redundant, 0…1: near-identical to the kept one
+    /// (and no sharper) → 1. Quick Clean's "safest 20%" takes only the top of this.
+    var confidence: [String: Float] = [:]
 
     var id: String { items.first?.id ?? UUID().uuidString }
 
@@ -42,6 +48,21 @@ struct SimilarGroup: Identifiable, Sendable, Equatable {
 
 /// Which photos the finder looks at. Vision costs ~10 ms a photo, so "everything" on a
 /// 70k library is minutes; recent ones are where the retakes are.
+/// How much of the suggestion Quick Clean takes, most certain first.
+enum CleanLevel: Double, CaseIterable, Sendable {
+    case safest = 0.2
+    case half = 0.5
+    case all = 1.0
+
+    var label: String {
+        switch self {
+        case .safest: "Safest 20%"
+        case .half: "50%"
+        case .all: "All"
+        }
+    }
+}
+
 enum SimilarScope: String, CaseIterable, Sendable {
     case month = "30 days"
     case year = "12 months"

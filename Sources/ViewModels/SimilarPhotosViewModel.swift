@@ -8,6 +8,10 @@ final class SimilarPhotosViewModel {
     private let track: PhotoLibraryService.Track
 
     var scope: SimilarScope = .year
+    /// Starts at the safest level: bulk deletion should earn trust before it takes everything.
+    var cleanLevel: CleanLevel = .safest {
+        didSet { applyLevel() }
+    }
     var groups: [SimilarGroup] = []
     var blurry: [MediaAsset] = []
     var analyzed = 0
@@ -100,11 +104,23 @@ final class SimilarPhotosViewModel {
             let ids = Set(group.items.map(\.id))
             if let mine = marked[group.id], reviewed.contains(group.id) {
                 next[group.id] = mine.intersection(ids)
-            } else {
-                next[group.id] = Set(group.suggestedForDeletion.map(\.id))
             }
         }
         groups = fresh
+        marked = next
+        applyLevel()
+    }
+
+    /// Marks, in every group the person has not touched, the most certain `cleanLevel`
+    /// share of all suggestions, ranked across the whole library.
+    private func applyLevel() {
+        let pool = groups.filter { !reviewed.contains($0.id) }
+            .flatMap { g in g.suggestedForDeletion.map { (g.id, $0.id, g.confidence[$0.id] ?? 0) } }
+            .sorted { $0.2 > $1.2 }
+        let take = Int((Double(pool.count) * cleanLevel.rawValue).rounded(.up))
+        var next = marked.filter { reviewed.contains($0.key) }
+        for g in groups where !reviewed.contains(g.id) { next[g.id] = [] }
+        for (groupID, id, _) in pool.prefix(take) { next[groupID, default: []].insert(id) }
         marked = next
     }
 
@@ -138,15 +154,15 @@ final class SimilarPhotosViewModel {
                 let rest = group.items.filter { !drop.contains($0.id) }
                 guard rest.count > 1 else { continue } // one left: nothing to choose any more
                 let best = rest.contains { $0.id == group.bestID } ? group.bestID : rest[0].id
-                kept.append(SimilarGroup(kind: group.kind, items: rest, bestID: best,
-                                         favoriteIDs: group.favoriteIDs.intersection(rest.map(\.id))))
+                var survivor = SimilarGroup(kind: group.kind, items: rest, bestID: best,
+                                            favoriteIDs: group.favoriteIDs.intersection(rest.map(\.id)))
+                survivor.confidence = group.confidence
+                kept.append(survivor)
             }
             groups = kept
             marked = marked.compactMapValues { $0.subtracting(drop) }
                 .filter { key, _ in kept.contains { $0.id == key } }
-            for group in kept where marked[group.id] == nil {
-                marked[group.id] = Set(group.suggestedForDeletion.map(\.id))
-            }
+            applyLevel()
         } catch {
             errorMessage = "Couldn't delete: \(error.localizedDescription)"
         }

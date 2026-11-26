@@ -15,9 +15,12 @@ final class FeatureStore: @unchecked Sendable {
         var quality: Float?
         /// EXIF camera model; "" = the file names none; nil = not read yet.
         var camera: String?
+        /// The phone's shot counter from `IMG_1234.HEIC`; -1 = no counter, -2 = not read yet.
+        var counter: Int = -2
     }
 
-    private static let magic: UInt32 = 0x5053_4632 // "PSF2"
+    private static let magicV2: UInt32 = 0x5053_4632 // "PSF2" (no counter), still readable
+    private static let magic: UInt32 = 0x5053_4633 // "PSF3"
     private let url: URL?
     private let lock = NSLock()
     private var records: [String: Record] = [:]
@@ -61,7 +64,9 @@ final class FeatureStore: @unchecked Sendable {
         }
         guard shouldLoad, let url, let data = try? Data(contentsOf: url) else { return }
         var reader = Reader(data: data)
-        guard reader.read(UInt32.self) == Self.magic, let n = reader.read(UInt32.self) else { return }
+        let version = reader.read(UInt32.self)
+        guard version == Self.magic || version == Self.magicV2, let n = reader.read(UInt32.self) else { return }
+        let hasCounter = version == Self.magic
         var out: [String: Record] = [:]
         out.reserveCapacity(Int(n))
         for _ in 0..<n {
@@ -74,7 +79,13 @@ final class FeatureStore: @unchecked Sendable {
                 guard let name = reader.string(Int(camLen)) else { break }
                 camera = name
             }
-            out[id] = Record(mod: mod, blur: blur, vector: vec, quality: quality.isNaN ? nil : quality, camera: camera)
+            var counter = -2
+            if hasCounter {
+                guard let c = reader.read(Int32.self) else { break }
+                counter = Int(c)
+            }
+            out[id] = Record(mod: mod, blur: blur, vector: vec, quality: quality.isNaN ? nil : quality,
+                             camera: camera, counter: counter)
         }
         lock.withLock { records.merge(out) { current, _ in current } }
     }
@@ -108,6 +119,7 @@ final class FeatureStore: @unchecked Sendable {
             } else {
                 put(Int16(-1))
             }
+            put(Int32(r.counter))
         }
         try? data.write(to: url, options: .atomic)
     }

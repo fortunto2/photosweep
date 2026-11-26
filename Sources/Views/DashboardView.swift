@@ -35,7 +35,7 @@ struct DashboardView: View {
                         }
                     }
                     Section {
-                        Text("PhotoSweep can only free space held by your photo library. “System Data” and other apps’ caches are managed by iOS and can’t be cleared by any app — see the Apps tab for how to clear those manually.")
+                        Text("Only the photo library can be cleaned by an app. Other apps and System Data: see Apps.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -43,10 +43,10 @@ struct DashboardView: View {
                         Toggle("Share anonymous usage counts", isOn: $countsEnabled)
                             .onChange(of: countsEnabled) { _, on in Analytics.isEnabled = on }
                     } footer: {
-                        Text("Counts like “app opened” or “scan took 3 s”, with a random install ID. Never photos, names or file details.")
+                        Text("Counts only, random ID. Never photos.")
                     }
                     Section {
-                        Label("After deleting, empty Photos → Recently Deleted to actually reclaim the space — items linger there ~30 days. See the Apps tab.", systemImage: "trash")
+                        Label("Deleted items wait 30 days in Recently Deleted. Empty it to free space.", systemImage: "trash")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

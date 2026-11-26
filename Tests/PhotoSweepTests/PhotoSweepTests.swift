@@ -355,6 +355,7 @@ private final class FakeFinder: SimilarPhotoFinderProtocol, @unchecked Sendable 
     ])
     let fake = FakeLibrary()
     let vm = SimilarPhotosViewModel(finder: FakeFinder(out.groups), library: fake)
+    vm.cleanLevel = .all
     await vm.scan()
     #expect(Set(vm.quickCleanIDs) == ["a", "c"])
     #expect(vm.quickCleanBytes == 400)
@@ -369,6 +370,32 @@ private final class FakeFinder: SimilarPhotoFinderProtocol, @unchecked Sendable 
     await vm.quickClean()
     #expect(fake.deleted.isEmpty == false)
     #expect(vm.freedBytes > 0)
+}
+
+@MainActor
+@Test func cleanLevelTakesTheMostCertainFirst() async {
+    // Kept "best" is b. "twin" is almost the same frame and softer; "near" is close;
+    // "edge" is barely similar and sharper than the kept one.
+    let out = PhotoGrouper().group([
+        photo("best", t: 0, bytes: 1, vector: [0, 0], blur: 0.20),
+        photo("twin", t: 2, bytes: 2, vector: [0.02, 0], blur: 0.40),
+        photo("near", t: 4, bytes: 3, vector: [0.15, 0], blur: 0.21),
+        photo("edge", t: 6, bytes: 4, vector: [0, 0.40], blur: 0.21),
+        photo("more", t: 8, bytes: 5, vector: [0.25, 0], blur: 0.22),
+    ])
+    let group = try? #require(out.groups.first)
+    #expect(group?.bestID == "best")
+    let c = group?.confidence ?? [:]
+    #expect((c["twin"] ?? 0) > (c["near"] ?? 0))
+    #expect((c["near"] ?? 0) > (c["edge"] ?? 1))
+
+    let vm = SimilarPhotosViewModel(finder: FakeFinder(out.groups), library: FakeLibrary())
+    await vm.scan()                          // starts at the safest 20% of 4 → 1
+    #expect(vm.quickCleanIDs == ["twin"])
+    vm.cleanLevel = .half
+    #expect(Set(vm.quickCleanIDs) == ["twin", "near"])
+    vm.cleanLevel = .all
+    #expect(vm.quickCleanIDs.count == 4)
 }
 
 @Test func driftingSessionSplitsInsteadOfChaining() {
@@ -407,4 +434,32 @@ private final class FakeFinder: SimilarPhotoFinderProtocol, @unchecked Sendable 
     #expect(again.record("a", mod: 1)?.quality == nil)
     #expect(again.record("b", mod: 1)?.camera == "iPhone 15")
     #expect(again.record("b", mod: 1)?.quality == 0.7)
+}
+
+@Test(arguments: [("IMG_1234.HEIC", 1234), ("IMG_E0042.JPG", 42), ("img_9999.mov", 9999)])
+func counterParses(_ name: String, _ expected: Int) {
+    #expect(PhotoGrouper.counter(of: name) == expected)
+}
+
+@Test func counterRejectsOtherNames() {
+    for name in ["IMG_12345.HEIC", "photo.jpg", "IMG_12.HEIC", "Screenshot 2026.png", "IMG_ABCD.JPG"] {
+        #expect(PhotoGrouper.counter(of: name) == nil)
+    }
+    #expect(PhotoGrouper.counterDistance(9998, 2) == 4)
+}
+
+@Test func samePhoneModelTwoPeopleSplitByCounter() {
+    // Both phones are "iPhone 15": the counter is what tells them apart.
+    var mine = photo("mine", t: 0, bytes: 1, vector: [0, 0])
+    mine.camera = "iPhone 15"; mine.counter = 1200
+    var mine2 = photo("mine2", t: 4, bytes: 2, vector: [0.05, 0])
+    mine2.camera = "iPhone 15"; mine2.counter = 1201
+    var hers = photo("hers", t: 2, bytes: 3, vector: [0, 0.05])
+    hers.camera = "iPhone 15"; hers.counter = 7300
+    let out = PhotoGrouper().group([mine, mine2, hers])
+    let group = try? #require(out.groups.first)
+    #expect(Set(group?.items.map(\.id) ?? []) == ["mine", "mine2"])
+    #expect(!PhotoGrouper.needsCameraCheck([mine, mine2]))
+    var close = hers; close.counter = 1260 // another phone whose counter happens to be near
+    #expect(PhotoGrouper.needsCameraCheck([mine, mine2, close]))
 }

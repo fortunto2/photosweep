@@ -52,12 +52,18 @@ struct SimilarPhotosView: View {
                 }
             }
         } footer: {
-            Text("Compared on this iPhone with Apple’s Vision. Nothing is uploaded. Favorites are never suggested for deletion.")
+            Text("On-device. Favorites are never deleted.")
         }
     }
 
     private var quickClean: some View {
         Section {
+            Picker("How much", selection: $vm.cleanLevel) {
+                ForEach(CleanLevel.allCases, id: \.self) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
             Button {
                 Task { await vm.quickClean() }
             } label: {
@@ -79,14 +85,13 @@ struct SimilarPhotosView: View {
             .listRowBackground(Color.clear)
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(vm.groups.count) groups. ★ marks the photo kept; tap any photo to change what goes. iOS asks before anything is deleted.")
-                Text("Using an iCloud Shared Library? Shots from two different phones are never grouped together (read from each photo’s camera). Deleting a shared photo removes it for everyone in the library.")
+                Text("\(vm.groups.count) groups · ★ kept · tap to change. 20% = only near-identical shots.")
+                Text("Shared Library: deleting removes it for everyone.")
                 if !vm.quickCleanReady {
-                    Text("Quick Clean unlocks once every photo’s phone is checked; single groups can be cleaned now.")
-                        .foregroundStyle(.orange)
+                    Text("Unlocks after the phone check.").foregroundStyle(.orange)
                 }
                 if vm.freedBytes > 0 {
-                    Text("Freed so far: \(Format.bytes(vm.freedBytes)). Empty Recently Deleted in Photos to reclaim it.")
+                    Text("Freed \(Format.bytes(vm.freedBytes)). Empty Recently Deleted to reclaim it.")
                         .foregroundStyle(.green)
                 }
             }
@@ -160,7 +165,7 @@ struct SimilarPhotosView: View {
                 }
             }
         } footer: {
-            Text("Nothing here is selected for you: a soft photo can still be the only one of its moment.")
+            Text("Nothing preselected.")
         }
     }
 
