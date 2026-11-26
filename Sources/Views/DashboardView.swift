@@ -1,7 +1,9 @@
+import SuperDuperAnalytics
 import SwiftUI
 
 struct DashboardView: View {
     @State private var vm: DashboardViewModel
+    @State private var countsEnabled = Analytics.isEnabled
 
     init(library: PhotoLibraryServiceProtocol, storage: StorageServiceProtocol) {
         _vm = State(initialValue: DashboardViewModel(storage: storage, library: library))
@@ -36,6 +38,12 @@ struct DashboardView: View {
                         Text("PhotoSweep can only free space held by your photo library. “System Data” and other apps’ caches are managed by iOS and can’t be cleared by any app — see the Apps tab for how to clear those manually.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                    }
+                    Section {
+                        Toggle("Share anonymous usage counts", isOn: $countsEnabled)
+                            .onChange(of: countsEnabled) { _, on in Analytics.isEnabled = on }
+                    } footer: {
+                        Text("Counts like “app opened” or “scan took 3 s”, with a random install ID. Never photos, names or file details.")
                     }
                     Section {
                         Label("After deleting, empty Photos → Recently Deleted to actually reclaim the space — items linger there ~30 days. See the Apps tab.", systemImage: "trash")
