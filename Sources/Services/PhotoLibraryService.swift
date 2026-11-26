@@ -214,10 +214,16 @@ actor PhotoLibraryService: PhotoLibraryServiceProtocol {
         fetch.enumerateObjects { asset, _, _ in assets.append(asset) }
         guard !assets.isEmpty else { return false }
         print("[delete] main n=\(assets.count)"); fflush(stdout)
-        try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.deleteAssets(assets as NSArray)
-        }
+        try await PHPhotoLibrary.shared().performChanges(deleteBlock(assets as NSArray))
         return true
+    }
+
+    /// Built outside the main actor: PhotoKit runs the change block on its own queue, and a
+    /// block written inside a `@MainActor` function inherits that isolation and traps there
+    /// (`dispatch_assert_queue`, crash on 26.11.2026).
+    private nonisolated static func deleteBlock(_ assets: NSArray) -> @Sendable () -> Void {
+        nonisolated(unsafe) let assets = assets
+        return { PHAssetChangeRequest.deleteAssets(assets) }
     }
 
     func delete(assetIDs: [String]) async throws {
